@@ -1,3 +1,4 @@
 PySimpleGUI
 cryptography
 whoosh
+Pillow

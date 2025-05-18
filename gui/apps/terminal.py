@@ -17,7 +17,12 @@ class TerminalApp:
             [sg.Input(key='-IN-', font='Consolas 11', do_not_clear=False, focus=True, background_color='black', text_color='white')],
             [sg.Button('Enter'), sg.Button('Close')]
         ]
-        self.window = sg.Window('Terminal', layout, modal=True, finalize=True)
+        self.window = sg.Window('Terminal', layout, modal=True, finalize=True, return_keyboard_events=True)
+        self.window['-IN-'].set_focus()
+
+        # Enter tuşuna basıldığında özel bir olay tetiklemek için Tkinter bind kullan
+        self.window['-IN-'].Widget.bind('<Return>', lambda event: self.window.write_event_value('-IN-_ReturnKeyPressed-', self.window['-IN-'].get()))
+
         self._print_prompt()
 
     def _prompt(self):
@@ -32,11 +37,19 @@ class TerminalApp:
     def run(self):
         while True:
             event, values = self.window.read()
+            # print(f"DEBUG: Event='{event}', Values='{values}'") # Hata ayıklama için bırakılabilir veya kaldırılabilir
             if event in (sg.WIN_CLOSED, 'Close'):
                 self.fs.save()
                 break
-            elif event == 'Enter':
-                cmd = values['-IN-']
+            elif event == 'Enter' or event == '-IN-_ReturnKeyPressed-':
+                cmd = ""
+                if event == '-IN-_ReturnKeyPressed-':
+                    cmd = values[event]
+                elif values is not None and '-IN-' in values:
+                    cmd = values['-IN-']
+
+                if cmd is None: cmd = ""
+
                 if cmd.strip() == '':
                     self._print('')
                     self._print_prompt()
@@ -51,16 +64,18 @@ class TerminalApp:
                 pass
             elif event == '__TIMEOUT__':
                 pass
-            elif event.startswith('Up'):
+            elif event.startswith('Up:'):
                 if self.history and self.history_idx > 0:
                     self.history_idx -= 1
                     self.window['-IN-'].update(self.history[self.history_idx])
-            elif event.startswith('Down'):
+            elif event.startswith('Down:'):
                 if self.history and self.history_idx < len(self.history) - 1:
                     self.history_idx += 1
                     self.window['-IN-'].update(self.history[self.history_idx])
-                else:
+                elif self.history_idx == len(self.history) -1 :
                     self.window['-IN-'].update('')
+                    self.history_idx = len(self.history)
+
 
         self.window.close()
 
@@ -78,63 +93,116 @@ class TerminalApp:
             if len(parts) > 1:
                 new_path = parts[1]
                 if not new_path.startswith('/'):
-                    new_path = self.cwd.rstrip('/') + '/' + new_path if self.cwd != '/' else '/' + new_path
+                    if self.cwd == '/':
+                        new_path = '/' + new_path.lstrip('/')
+                    else:
+                        new_path = self.cwd.rstrip('/') + '/' + new_path.lstrip('/')
+
+                if new_path.endswith('/..'):
+                    path_parts = new_path.rstrip('/..').split('/')
+                    if len(path_parts) > 1:
+                        new_path = '/'.join(path_parts[:-1]) or '/'
+                    else:
+                        new_path = '/'
+                elif '/../' in new_path:
+                    # Bu kısım daha karmaşık path normalizasyonu gerektirebilir
+                    pass
+
+
                 try:
-                    self.fs.list_dir(new_path)
-                    self.cwd = new_path
+                    self.fs.list_dir(new_path) # Dizin varlığını kontrol eder
+                    self.cwd = new_path if new_path.startswith('/') else '/'
+                    if not self.cwd.endswith('/') and self.cwd != '/':
+                        self.cwd += '/'
+                    if '//' in self.cwd:
+                        self.cwd = self.cwd.replace('//', '/')
+                    if self.cwd != '/' and self.cwd.endswith('/'):
+                         self.cwd = self.cwd.rstrip('/')
+
+
                 except Exception as e:
                     self._print(f'Error: {e}')
-            self._print(self.cwd)
         elif parts[0] == 'pwd':
             self._print(self.cwd)
         elif parts[0] == 'mkdir' and len(parts) > 1:
             try:
-                path = parts[1] if parts[1].startswith('/') else self.cwd.rstrip('/') + '/' + parts[1]
+                path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
                 self.fs.mkdir(path)
                 self._print(f"Directory '{path}' created.")
             except Exception as e:
                 self._print(f"Error: {e}")
         elif parts[0] == 'touch' and len(parts) > 1:
             try:
-                path = parts[1] if parts[1].startswith('/') else self.cwd.rstrip('/') + '/' + parts[1]
+                path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
                 self.fs.create_file(path, content=b'')
                 self._print(f"File '{path}' created.")
             except Exception as e:
                 self._print(f"Error: {e}")
         elif parts[0] == 'cat' and len(parts) > 1:
             try:
-                path = parts[1] if parts[1].startswith('/') else self.cwd.rstrip('/') + '/' + parts[1]
+                path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
                 content = self.fs.read_file(path)
                 self._print(content.decode('utf-8', errors='ignore'))
             except Exception as e:
                 self._print(f"Error: {e}")
         elif parts[0] == 'echo' and '>' in parts:
-            idx = parts.index('>')
-            text = ' '.join(parts[1:idx])
-            filename = parts[idx+1]
-            path = filename if filename.startswith('/') else self.cwd.rstrip('/') + '/' + filename
             try:
+                idx = parts.index('>')
+                text_parts = parts[1:idx]
+                if not text_parts:
+                    text = ""
+                else:
+                    text = ' '.join(text_parts)
+
+                filename = parts[idx+1]
+                if not filename:
+                    self._print("Error: No filename specified after >")
+                    return
+
+                path = filename if filename.startswith('/') else (self.cwd.rstrip('/') + '/' + filename if self.cwd != '/' else '/' + filename)
                 self.fs.write_file(path, text.encode('utf-8'))
                 self._print(f"Wrote to {path}")
+            except ValueError:
+                self._print("Error: Invalid echo command. Usage: echo [text] > filename")
+            except IndexError:
+                self._print("Error: No filename specified after >")
             except Exception as e:
                 self._print(f"Error: {e}")
         elif parts[0] == 'run' and len(parts) > 1 and parts[1].endswith('.py'):
-            path = parts[1] if parts[1].startswith('/') else self.cwd.rstrip('/') + '/' + parts[1]
+            path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
             try:
                 code = self.fs.read_file(path).decode('utf-8')
                 old_stdout = sys.stdout
-                sys.stdout = mystdout = io.StringIO()
+                redirected_output = io.StringIO()
+                sys.stdout = redirected_output
                 try:
-                    exec(code, {})
+                    exec(code, {'__name__': '__main__', 'fs': self.fs, 'cwd': self.cwd})
                 except Exception as e:
-                    print(f"Runtime error: {e}")
-                sys.stdout = old_stdout
-                self._print(mystdout.getvalue())
+                    print(f"Runtime error in {parts[1]}: {e}", file=sys.stderr)
+                finally:
+                    sys.stdout = old_stdout
+                
+                output_val = redirected_output.getvalue()
+                if output_val:
+                    self._print(output_val)
+            except FileNotFoundError:
+                self._print(f"Error: File not found '{path}'")
             except Exception as e:
-                self._print(f"Error: {e}")
+                self._print(f"Error running script: {e}")
+
         elif parts[0] == 'help':
             self._print(
-                "ls, cd <dir>, pwd, mkdir <dir>, touch <file>, cat <file>, echo <text> > <file>, run <file.py>, help"
+                "Available commands:\n"
+                "  ls                - List directory contents\n"
+                "  cd <directory>    - Change current directory (use '..' for parent)\n"
+                "  pwd               - Print working directory\n"
+                "  mkdir <directory> - Create a new directory\n"
+                "  touch <file>      - Create a new empty file\n"
+                "  cat <file>        - Display file content\n"
+                "  echo [text] > <file> - Write text to a file (overwrite)\n"
+                "  run <file.py>     - Execute a Python script from the filesystem\n"
+                "  help              - Show this help message\n"
+                "  Up/Down Arrows    - Navigate command history"
             )
         else:
-            self._print(f"Unknown command: {cmd}")
+            self._print(f"Unknown command: {parts[0]}. Type 'help' for available commands.")
