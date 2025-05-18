@@ -1,161 +1,155 @@
 import os
+from cryptography.fernet import Fernet, InvalidToken
+import time
 import pickle
-from cryptography.fernet import Fernet
-from whoosh.index import create_in
-from whoosh.fields import Schema, TEXT, ID
 
 class File:
-    def __init__(self, name, content=b'', encrypted=False, key=None, owner='user', permissions=0o644):
+    def __init__(self, name, content=b'', encrypted=False, key=None):
         self.name = name
+        self.timestamp = time.time()
         self.encrypted = encrypted
-        self._key = key or (Fernet.generate_key() if encrypted else None)
-        self._fernet = Fernet(self._key) if encrypted else None
-        self._data = self._fernet.encrypt(content) if encrypted else content
-        self.owner = owner
-        self.permissions = permissions  # rw-r--r--
-        self.metadata = {}
+        self.key = key if key else (Fernet.generate_key() if encrypted else None)
+        self.content = content # content şifreliyse şifreli, değilse ham olarak saklanmalı
+        if encrypted and content: # Eğer başlangıçta şifreli içerik verildiyse ve bu içerik plaintext ise şifrele
+             # Bu kısım create_file veya write_file içinde ele alınmalı.
+             # __init__ doğrudan şifrelenmiş content almalı veya boş olmalı.
+             # Şimdilik, content'in zaten doğru formatta (şifreliyse şifreli) geldiğini varsayalım.
+             pass
+        self.size = len(self.content)
 
-    def read(self):
-        return self._fernet.decrypt(self._data) if self.encrypted else self._data
 
-    def write(self, data):
-        self._data = self._fernet.encrypt(data) if self.encrypted else data
+    def read(self, decrypt_if_able=True):
+        if self.encrypted:
+            if decrypt_if_able:
+                if not self.key:
+                    raise ValueError("File is marked as encrypted but no key is available.")
+                try:
+                    f = Fernet(self.key)
+                    return f.decrypt(self.content)
+                except InvalidToken:
+                    raise ValueError("Decryption failed. Invalid token or key.")
+                except Exception as e:
+                    raise ValueError(f"Decryption failed: {e}")
+            else:
+                return self.content # Ham, şifreli içeriği döndür
+        return self.content
+
+    def write(self, data_bytes, encrypt_override=None):
+        """Writes data to the file, encrypting if necessary."""
+        should_encrypt = self.encrypted if encrypt_override is None else encrypt_override
+
+        if should_encrypt:
+            if not self.key:
+                self.key = Fernet.generate_key()
+            f = Fernet(self.key)
+            self.content = f.encrypt(data_bytes)
+            self.encrypted = True
+        else:
+            self.content = data_bytes
+            self.encrypted = False
+            self.key = None
+        
+        self.size = len(self.content)
+        self.timestamp = time.time()
+
 
 class Directory:
-    def __init__(self, name, owner='user', permissions=0o755):
+    def __init__(self, name):
         self.name = name
-        self.entries = {}  # name: File or Directory
-        self.owner = owner
-        self.permissions = permissions  # rwxr-xr-x
+        self.entries = {} # name: File or Directory object
+        self.timestamp = time.time()
 
 class FileSystem:
-    SAVE_PATH = 'fs_state.pkl'
-
-    def __init__(self):
+    def __init__(self, state_file='fs_state.pkl'):
         self.root = Directory('/')
-        self.cwd = self.root  # current working directory (not used in this example)
-        self.schema = Schema(path=ID(stored=True, unique=True), content=TEXT)
-        os.makedirs('indexdir', exist_ok=True)
-        self.index = create_in('indexdir', self.schema)
+        self.state_file = state_file
 
-    def _split_path(self, path):
-        # Returns list of path components, e.g. /a/b/c.txt -> ['a','b','c.txt']
-        return [p for p in path.strip('/').split('/') if p]
+    def _resolve(self, path_str):
+        if not path_str.startswith('/'):
+            raise ValueError("Path must be absolute (start with '/')")
+        if path_str == '/':
+            return self.root, None 
 
-    def _resolve(self, path):
-        # Returns (parent_dir, entry_name)
-        parts = self._split_path(path)
-        if not parts:
-            return self.root, ''
-        curr = self.root
-        for p in parts[:-1]:
-            if p not in curr.entries or not isinstance(curr.entries[p], Directory):
-                raise FileNotFoundError(f"Directory '{p}' not found in path '{path}'")
-            curr = curr.entries[p]
-        return curr, parts[-1]
+        parts = path_str.strip('/').split('/')
+        current_dir = self.root
+        for i, part in enumerate(parts[:-1]):
+            if part not in current_dir.entries or not isinstance(current_dir.entries[part], Directory):
+                raise FileNotFoundError(f"Path component not found or not a directory: {part}")
+            current_dir = current_dir.entries[part]
+        
+        entry_name = parts[-1]
+        return current_dir, entry_name
 
-    def list_dir(self, path='/'):
-        dir_obj, name = self._resolve(path)
-        if name:
-            if name in dir_obj.entries and isinstance(dir_obj.entries[name], Directory):
-                return list(dir_obj.entries[name].entries.keys())
-            else:
-                raise NotADirectoryError(path)
-        return list(dir_obj.entries.keys())
 
-    def mkdir(self, path, owner='user', permissions=0o755):
-        parent, name = self._resolve(path)
-        if name in parent.entries:
-            raise FileExistsError(f"Directory '{name}' already exists")
-        parent.entries[name] = Directory(name, owner, permissions)
+    def read_file(self, path, decrypt_if_able=True):
+        parent_dir, filename = self._resolve(path)
+        if filename in parent_dir.entries and isinstance(parent_dir.entries[filename], File):
+            file_obj = parent_dir.entries[filename]
+            content = file_obj.read(decrypt_if_able=decrypt_if_able)
+            return content, file_obj.encrypted # İçeriği ve orijinal şifreleme durumunu döndür
+        raise FileNotFoundError(f"File not found: {path}")
 
-    def rmdir(self, path):
-        parent, name = self._resolve(path)
-        if name not in parent.entries or not isinstance(parent.entries[name], Directory):
-            raise FileNotFoundError(f"Directory '{name}' not found")
-        if parent.entries[name].entries:
-            raise OSError("Directory not empty")
-        del parent.entries[name]
+    def write_file(self, path, data_bytes):
+        parent_dir, filename = self._resolve(path)
+        if filename not in parent_dir.entries or not isinstance(parent_dir.entries[filename], File):
+            raise FileNotFoundError(f"File not found: {path}. Use create_file first.")
 
-    def create_file(self, path, content=b'', encrypted=False, owner='user', permissions=0o644):
-        parent, name = self._resolve(path)
-        if name in parent.entries:
-            raise FileExistsError(f"File '{name}' already exists")
-        key = Fernet.generate_key() if encrypted else None
-        file = File(name, content, encrypted, key, owner, permissions)
-        parent.entries[name] = file
-        # Index content
-        writer = self.index.writer()
-        writer.add_document(path=path, content=file.read().decode('utf-8', errors='ignore'))
-        writer.commit()
+        file_obj = parent_dir.entries[filename]
+        file_obj.write(data_bytes)
 
-    def read_file(self, path):
-        parent, name = self._resolve(path)
-        file = parent.entries.get(name)
-        if isinstance(file, File):
-            return file.read()
-        raise FileNotFoundError(path)
+    def create_file(self, path, content=b'', encrypted=False):
+        parent_dir, filename = self._resolve(path)
+        if filename in parent_dir.entries:
+            raise FileExistsError(f"File or directory already exists: {path}")
+        
+        new_file = File(filename, encrypted=encrypted)
+        new_file.write(content) 
+        parent_dir.entries[filename] = new_file
 
-    def write_file(self, path, data):
-        parent, name = self._resolve(path)
-        file = parent.entries.get(name)
-        if isinstance(file, File):
-            file.write(data)
-            # Re-index
-            writer = self.index.writer()
-            writer.update_document(path=path, content=file.read().decode('utf-8', errors='ignore'))
-            writer.commit()
-        else:
-            raise FileNotFoundError(path)
+    def mkdir(self, path):
+        parent_dir, dirname = self._resolve(path)
+        if dirname in parent_dir.entries:
+            raise FileExistsError(f"File or directory already exists: {path}")
+        parent_dir.entries[dirname] = Directory(dirname)
+
+    def list_dir(self, path):
+        target_dir_obj = self.root
+        if path != '/':
+            parent_dir, dirname = self._resolve(path)
+            if dirname not in parent_dir.entries or not isinstance(parent_dir.entries[dirname], Directory):
+                raise FileNotFoundError(f"Directory not found: {path}")
+            target_dir_obj = parent_dir.entries[dirname]
+        
+        return list(target_dir_obj.entries.keys())
+
 
     def delete_file(self, path):
-        parent, name = self._resolve(path)
-        if name in parent.entries and isinstance(parent.entries[name], File):
-            del parent.entries[name]
-            # Delete from index
-            writer = self.index.writer()
-            writer.delete_by_term('path', path)
-            writer.commit()
+        parent_dir, filename = self._resolve(path)
+        if filename in parent_dir.entries and isinstance(parent_dir.entries[filename], File):
+            del parent_dir.entries[filename]
         else:
-            raise FileNotFoundError(path)
+            raise FileNotFoundError(f"File not found or not a file: {path}")
 
-    def move(self, src_path, dst_path):
-        src_parent, src_name = self._resolve(src_path)
-        dst_parent, dst_name = self._resolve(dst_path)
-        if src_name not in src_parent.entries:
-            raise FileNotFoundError(src_path)
-        if dst_name in dst_parent.entries:
-            raise FileExistsError(dst_path)
-        dst_parent.entries[dst_name] = src_parent.entries.pop(src_name)
-        # Update index path
-        writer = self.index.writer()
-        writer.update_document(path=dst_path, content=dst_parent.entries[dst_name].read().decode('utf-8', errors='ignore'))
-        writer.delete_by_term('path', src_path)
-        writer.commit()
-
-    def chmod(self, path, permissions):
-        parent, name = self._resolve(path)
-        entry = parent.entries.get(name)
-        if entry:
-            entry.permissions = permissions
+    def rmdir(self, path):
+        parent_dir, dirname = self._resolve(path)
+        if dirname in parent_dir.entries and isinstance(parent_dir.entries[dirname], Directory):
+            if parent_dir.entries[dirname].entries:
+                raise OSError("Directory not empty")
+            del parent_dir.entries[dirname]
         else:
-            raise FileNotFoundError(path)
+            raise FileNotFoundError(f"Directory not found or not a directory: {path}")
 
-    def search(self, query_str):
-        from whoosh.qparser import QueryParser
-        qp = QueryParser('content', schema=self.schema)
-        q = qp.parse(query_str)
-        with self.index.searcher() as s:
-            results = s.search(q)
-            return [hit['path'] for hit in results]
 
     def save(self):
-        with open(self.SAVE_PATH, 'wb') as f:
+        with open(self.state_file, 'wb') as f:
             pickle.dump(self.root, f)
 
     def load(self):
         try:
-            with open(self.SAVE_PATH, 'rb') as f:
+            with open(self.state_file, 'rb') as f:
                 self.root = pickle.load(f)
         except FileNotFoundError:
+            self.root = Directory('/')
+        except Exception as e:
+            print(f"Error loading filesystem state: {e}. Starting with a new filesystem.")
             self.root = Directory('/')

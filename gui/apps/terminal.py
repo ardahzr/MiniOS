@@ -141,10 +141,23 @@ class TerminalApp:
         elif parts[0] == 'cat' and len(parts) > 1:
             try:
                 path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
-                content = self.fs.read_file(path)
-                self._print(content.decode('utf-8', errors='ignore'))
-            except Exception as e:
+                
+                # Dosyayı okurken şifre çözme işlemini yapma (decrypt_if_able=False)
+                # read_file şimdi (content_bytes, is_encrypted_originally) döndürüyor
+                content_bytes, is_encrypted_originally = self.fs.read_file(path, decrypt_if_able=False)
+
+                if is_encrypted_originally:
+                    self._print(f"--- Encrypted Content of '{parts[1]}' ---")
+                    self._print(content_bytes.decode('utf-8', errors='replace'))
+                    self._print(f"--- End of Encrypted Content ---")
+                else:
+                    self._print(content_bytes.decode('utf-8', errors='ignore'))
+            except FileNotFoundError:
+                self._print(f"Error: File not found '{path}'")
+            except ValueError as e: 
                 self._print(f"Error: {e}")
+            except Exception as e:
+                self._print(f"Error reading file: {e}")
         elif parts[0] == 'echo' and '>' in parts:
             try:
                 idx = parts.index('>')
@@ -171,16 +184,19 @@ class TerminalApp:
         elif parts[0] == 'run' and len(parts) > 1 and parts[1].endswith('.py'):
             path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
             try:
-                code = self.fs.read_file(path).decode('utf-8')
+                # Dosya içeriğini oku, şifreliyse şifresini çözerek al
+                content_bytes, _ = self.fs.read_file(path, decrypt_if_able=True)
+                code = content_bytes.decode('utf-8')
+                
                 old_stdout = sys.stdout
                 redirected_output = io.StringIO()
                 sys.stdout = redirected_output
                 try:
                     exec(code, {'__name__': '__main__', 'fs': self.fs, 'cwd': self.cwd})
                 except Exception as e:
-                    print(f"Runtime error in {parts[1]}: {e}", file=sys.stderr)
+                    print(f"Runtime error in {parts[1]}: {e}", file=sys.stderr) # Hataları stderr'e yazdır
                 finally:
-                    sys.stdout = old_stdout
+                    sys.stdout = old_stdout # stdout'u geri yükle
                 
                 output_val = redirected_output.getvalue()
                 if output_val:
@@ -198,9 +214,9 @@ class TerminalApp:
                 "  pwd               - Print working directory\n"
                 "  mkdir <directory> - Create a new directory\n"
                 "  touch <file>      - Create a new empty file\n"
-                "  cat <file>        - Display file content\n"
+                "  cat <file>        - Display file content (shows raw if encrypted)\n"
                 "  echo [text] > <file> - Write text to a file (overwrite)\n"
-                "  run <file.py>     - Execute a Python script from the filesystem\n"
+                "  run <file.py>     - Execute a Python script from the filesystem (decrypts if needed)\n"
                 "  help              - Show this help message\n"
                 "  Up/Down Arrows    - Navigate command history"
             )
