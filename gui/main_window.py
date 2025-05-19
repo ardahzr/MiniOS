@@ -6,6 +6,7 @@ import io # For BytesIO
 from gui.apps.file_explorer import FileExplorerApp
 from gui.apps.terminal import TerminalApp
 from gui.apps.game_app import GameApp
+from gui.apps.memory_visualizer_app import MemoryVisualizerApp # Import the new app
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -45,6 +46,7 @@ class MainWindow:
         button_file_explorer = create_button_with_icon('File Explorer', icon_folder_path, icon_size=common_icon_size)
         button_terminal = create_button_with_icon('Terminal', icon_terminal_path, icon_size=common_icon_size)
         button_game = create_button_with_icon('Game', icon_game_path, icon_size=common_icon_size)
+        button_memory = sg.Button('Memory Viz', key='Memory Visualizer', size=(14,2), pad=(10,10)) # Text button for now
         button_exit = create_button_with_icon('Exit', icon_exit_path, key='Exit', icon_size=common_icon_size)
 
         layout = [
@@ -53,6 +55,7 @@ class MainWindow:
                 button_file_explorer,
                 button_terminal,
                 button_game,
+                button_memory, # Add the new button
                 button_exit
             ]
         ]
@@ -69,4 +72,6 @@ class MainWindow:
                 TerminalApp().run()
             elif event == 'Game':
                 GameApp().run()
+            elif event == 'Memory Visualizer': # Add event handler for the new app
+                MemoryVisualizerApp().run()
         self.window.close()
