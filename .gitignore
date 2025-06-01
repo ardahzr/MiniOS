@@ -1,5 +1,5 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+**/__pycache__
 *.py[cod]
 *$py.class
 
@@ -92,6 +92,7 @@ Thumbs.db
 # Application-specific state files
 # This is your MiniOS filesystem state file
 fs_state.pkl
+PySimpleGUI.py
 # If fs_state.pkl can appear in other subdirectories of MiniOS, 
 # you might prefer a more general pattern like:
 # MiniOS/**/fs_state.pkl
