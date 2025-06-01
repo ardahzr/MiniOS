@@ -1,72 +1,269 @@
 import os
 import PySimpleGUI as sg
-from PIL import Image # Import Pillow
-import io # For BytesIO
+from PIL import Image, ImageDraw, ImageFont
+import io
+import time
+from datetime import datetime
 
 from gui.apps.file_explorer import FileExplorerApp
 from gui.apps.terminal import TerminalApp
 from gui.apps.game_app import GameApp
+from gui.apps.memory_visualizer_app import MemoryVisualizerApp
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
 icon_terminal_path = os.path.join(BASEDIR, 'resources', 'terminal.png')
 icon_game_path = os.path.join(BASEDIR, 'resources', 'game.png')
 icon_exit_path = os.path.join(BASEDIR, 'resources', 'exit.png')
-
-# Helper function to create a button, falling back if image is not found
-def create_button_with_icon(text, image_path, key=None, pad=(10,10), icon_size=(48, 48)):
-    fallback_button_size = (14, 2)
-    if os.path.exists(image_path):
-        try:
-            img = Image.open(image_path)
-            img.thumbnail(icon_size, Image.Resampling.LANCZOS) # Resize image, maintaining aspect ratio
-            with io.BytesIO() as bio:
-                img.save(bio, format="PNG")
-                image_bytes = bio.getvalue()
-            # When using image_data, the 'text' parameter becomes a tooltip.
-            # Button size will be determined by the image.
-            # Making button background transparent and removing border for icon-like feel.
-            return sg.Button(tooltip=text, image_data=image_bytes, key=key or text, pad=pad,
-                             button_color=(sg.theme_background_color(), sg.theme_background_color()),
-                             border_width=0)
-        except Exception as e:
-            print(f"Warning: Could not load or resize icon {image_path} with Pillow: {e}. Using text-only button for '{text}'.")
-            return sg.Button(text, key=key or text, pad=pad, size=fallback_button_size)
-    else:
-        print(f"Warning: Icon not found at {image_path}. Using text-only button for '{text}'.")
-        return sg.Button(text, key=key or text, pad=pad, size=fallback_button_size)
+icon_memoryVis_path = os.path.join(BASEDIR, 'resources', 'memory_vis.png')
+icon_start_path = os.path.join(BASEDIR, 'resources', 'start.png')
+wallpaper_path = os.path.join(BASEDIR, 'resources', 'wallpaper.png')
 
 class MainWindow:
+    DESKTOP_ICON_SIZE = (48, 48)
+    DESKTOP_ICON_TEXT_FONT = ('Arial', 9)
+    DESKTOP_ICON_TEXT_COLOR = 'white'
+    DESKTOP_ICON_VERTICAL_SPACING = 80
+    DESKTOP_ICON_HORIZONTAL_PADDING = 20
+    DESKTOP_ICON_TOP_PADDING = 20
+
     def __init__(self):
         sg.theme('DarkBlue3')
 
-        common_icon_size = (64, 64)
+        self.taskbar_bg = "#30528a"
+        self.start_menu_bg = '#1565c0'
+        self.button_color = ('white', self.start_menu_bg)
 
-        button_file_explorer = create_button_with_icon('File Explorer', icon_folder_path, icon_size=common_icon_size)
-        button_terminal = create_button_with_icon('Terminal', icon_terminal_path, icon_size=common_icon_size)
-        button_game = create_button_with_icon('Game', icon_game_path, icon_size=common_icon_size)
-        button_exit = create_button_with_icon('Exit', icon_exit_path, key='Exit', icon_size=common_icon_size)
+        self.desktop_icon_configs = [
+            {'key': 'File Explorer', 'text': 'File Explorer', 'image_path': icon_folder_path},
+            {'key': 'Terminal', 'text': 'Terminal', 'image_path': icon_terminal_path},
+            {'key': 'Game', 'text': 'Game', 'image_path': icon_game_path},
+            {'key': 'Memory', 'text': 'Memory', 'image_path': icon_memoryVis_path},
+        ]
+        self.clickable_icon_areas = {} # Stores {'key': (x1, y1, x2, y2)}
+
+        start_icon_height_config = 40 
+        taskbar_button_padding = 8
+        self.taskbar_height = start_icon_height_config + taskbar_button_padding 
+
+        window_width, window_height = 1440, 810
+        self.desktop_graph_width = window_width
+        self.desktop_graph_height = window_height - self.taskbar_height
+
+        desktop_layout = [[
+            sg.Graph(
+                canvas_size=(self.desktop_graph_width, self.desktop_graph_height),
+                graph_bottom_left=(0, self.desktop_graph_height), # Y=0 at bottom for typical graph
+                graph_top_right=(self.desktop_graph_width, 0),    # Y=max at top for typical graph
+                key='-DESKTOP_GRAPH-',
+                enable_events=True,
+                pad=(0,0),
+                background_color='lightgrey'
+            )
+        ]]
+
+        start_icon_width, start_icon_height = 40, 40
+        start_icon = None
+        if os.path.exists(icon_start_path):
+            try:
+                img = Image.open(icon_start_path)
+                img.thumbnail((start_icon_width, start_icon_height), Image.Resampling.LANCZOS)
+                with io.BytesIO() as bio:
+                    img.save(bio, format="PNG")
+                    start_icon = bio.getvalue()
+            except Exception as e:
+                print(f"ERROR DEBUG: Could not load or process start icon {icon_start_path}: {e}")
+        
+        button_text_content = ''
+        current_image_data = start_icon
+        if start_icon is None:
+            button_text_content = 'ERR'
+            current_image_data = None
+
+        button_pixel_width = start_icon_width + 8
+        button_pixel_height = start_icon_height + 8
+        clock_font_size_approx_pixels = 20
+
+        taskbar_layout = [[
+            sg.Button(button_text_content,
+                      image_data=current_image_data,
+                      key='START',
+                      button_color=(self.taskbar_bg, self.taskbar_bg),
+                      border_width=0,
+                      pad=((10, 20), (0,0)),
+                      ),
+            sg.Push(),
+            sg.Text('', key='CLOCK',
+                    font=('Arial', 16),
+                    pad=(10, (button_pixel_height - clock_font_size_approx_pixels) // 2 if button_pixel_height > clock_font_size_approx_pixels else 3),
+                    background_color=self.taskbar_bg,
+                    text_color='white')
+        ]]
 
         layout = [
-            [sg.Text('Mini OS Simulation', font=('Any', 20), justification='center', expand_x=True)],
-            [
-                button_file_explorer,
-                button_terminal,
-                button_game,
-                button_exit
-            ]
+            [sg.Column(desktop_layout, pad=(0,0), expand_x=True, expand_y=True)],
+            [sg.Column(taskbar_layout, background_color=self.taskbar_bg, pad=(0,0), expand_x=True)]
         ]
-        self.window = sg.Window('Desktop', layout, finalize=True, element_justification='c', background_color='#1a2332')
 
+        self.window = sg.Window(
+            'Desktop',
+            layout,
+            finalize=True,
+            resizable=True,
+            size=(window_width, window_height),
+            margins=(0,0),
+            element_justification='c'
+        )
+
+        self.desktop_graph = self.window['-DESKTOP_GRAPH-']
+        self._draw_wallpaper()
+        self._draw_desktop_icons_on_graph()
+        
+        self.update_clock()
+
+    def _get_icon_image_bytes(self, image_path, size):
+        if image_path and os.path.exists(image_path):
+            try:
+                img = Image.open(image_path)
+                img.thumbnail(size, Image.Resampling.LANCZOS)
+                with io.BytesIO() as bio:
+                    img.save(bio, format="PNG")
+                    return bio.getvalue()
+            except Exception as e:
+                print(f"Warning: Could not load icon {image_path}: {e}")
+        return None
+
+    def _draw_wallpaper(self):
+        if os.path.exists(wallpaper_path):
+            try:
+                img = Image.open(wallpaper_path)
+                img = img.resize((self.desktop_graph_width, self.desktop_graph_height), Image.Resampling.LANCZOS)
+                with io.BytesIO() as bio:
+                    img.save(bio, format="PNG")
+                    image_bytes = bio.getvalue()
+                
+                self.desktop_graph.draw_image(data=image_bytes, location=(0,0))
+            except Exception as e:
+                print(f"Error drawing wallpaper: {e}")
+        else:
+            print(f"Wallpaper image not found: {wallpaper_path}")
+
+
+    def _draw_desktop_icons_on_graph(self):
+        self.clickable_icon_areas.clear()
+        current_x = self.DESKTOP_ICON_HORIZONTAL_PADDING
+        current_y = self.DESKTOP_ICON_TOP_PADDING
+        approx_font_pixel_height = 12
+        approx_half_font_height = approx_font_pixel_height // 2
+
+        for i, icon_config in enumerate(self.desktop_icon_configs):
+            image_bytes = self._get_icon_image_bytes(icon_config['image_path'], self.DESKTOP_ICON_SIZE)
+            
+            icon_w, icon_h = self.DESKTOP_ICON_SIZE
+            
+            img_x, img_y = current_x, current_y
+
+            if image_bytes:
+                self.desktop_graph.draw_image(data=image_bytes, location=(img_x, img_y))
+            else:
+                self.desktop_graph.draw_rectangle((img_x, img_y), (img_x + icon_w, img_y + icon_h), line_color='red')
+                self.desktop_graph.draw_text("?", location=(img_x + icon_w/2, img_y + icon_h/2), color='red', font=('Arial', 20))
+
+            text_content = icon_config['text']
+            text_area_height_approx = 20 
+            
+            text_x_center = img_x + icon_w / 2
+            text_y_anchor_top = img_y + icon_h + 5
+
+            text_draw_location_y = text_y_anchor_top + approx_half_font_height
+
+            self.desktop_graph.draw_text(
+                text_content,
+                location=(text_x_center, text_draw_location_y),
+                font=self.DESKTOP_ICON_TEXT_FONT,
+                color=self.DESKTOP_ICON_TEXT_COLOR
+            )
+
+            clickable_x1 = img_x
+            clickable_y1 = img_y 
+            clickable_x2 = img_x + icon_w
+            clickable_y2 = text_y_anchor_top + text_area_height_approx 
+            
+            self.clickable_icon_areas[icon_config['key']] = (clickable_x1, clickable_y1, clickable_x2, clickable_y2)
+
+            current_y += self.DESKTOP_ICON_VERTICAL_SPACING
+
+
+    def update_clock(self):
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.window['CLOCK'].update(current_time)
+        
     def run(self):
         while True:
-            event, values = self.window.read()
-            if event in (sg.WIN_CLOSED, 'Exit'):
+            event, values = self.window.read(timeout=1000)
+            
+            self.update_clock()
+            
+            if event == sg.WIN_CLOSED:
                 break
-            elif event == 'File Explorer':
+
+            elif event == '-DESKTOP_GRAPH-':
+                click_coords = values['-DESKTOP_GRAPH-']
+                if click_coords:
+                    cx, cy = click_coords
+                    for icon_key, (x1, y1, x2, y2) in self.clickable_icon_areas.items():
+                        if x1 <= cx <= x2 and y1 <= cy <= y2:
+                            event = icon_key
+                            break 
+            
+            if event == 'START':
+                start_menu_layout = [
+                    [sg.Button('File Explorer', size=(20,1), button_color=self.button_color, key='File Explorer_menu')],
+                    [sg.Button('Terminal', size=(20,1), button_color=self.button_color, key='Terminal_menu')],
+                    [sg.Button('Game', size=(20,1), button_color=self.button_color, key='Game_menu')],
+                    [sg.Button('Memory Visualizer', size=(20,1), button_color=self.button_color, key='Memory_menu')],
+                    [sg.HorizontalSeparator(color='#1976d2')],
+                    [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit_menu')]
+                ]
+                
+                start_button_widget = self.window['START'].Widget
+                start_menu_x = start_button_widget.winfo_rootx()
+                taskbar_y_abs = self.window.CurrentLocation()[1] + self.desktop_graph_height
+                
+                num_items = len(start_menu_layout)
+                button_height_approx = 30
+                menu_height_approx = num_items * button_height_approx
+
+                start_menu_y = taskbar_y_abs - menu_height_approx 
+
+                start_menu = sg.Window(
+                    'Start Menu', 
+                    start_menu_layout, 
+                    location=(start_menu_x, start_menu_y),
+                    no_titlebar=True, 
+                    keep_on_top=True, 
+                    finalize=True, 
+                    background_color=self.start_menu_bg,
+                    grab_anywhere=False
+                )
+                
+                menu_choice, _ = start_menu.read()
+                start_menu.close()
+                
+                if menu_choice:
+                    if menu_choice.endswith('_menu'):
+                        actual_choice = menu_choice.replace('_menu', '')
+                        if actual_choice == 'Exit':
+                            break 
+                        event = actual_choice
+
+            if event == 'File Explorer':
                 FileExplorerApp().run()
             elif event == 'Terminal':
                 TerminalApp().run()
             elif event == 'Game':
                 GameApp().run()
+            elif event == 'Memory':
+                MemoryVisualizerApp().run()
+            
         self.window.close()
