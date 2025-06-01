@@ -204,13 +204,13 @@ class MainWindow:
     def run(self):
         while True:
             event, values = self.window.read(timeout=1000)
-            
-            self.update_clock()
-            
+
             if event == sg.WIN_CLOSED:
                 break
+            
+            self.update_clock()
 
-            elif event == '-DESKTOP_GRAPH-':
+            if event == '-DESKTOP_GRAPH-':
                 click_coords = values['-DESKTOP_GRAPH-']
                 if click_coords:
                     cx, cy = click_coords
