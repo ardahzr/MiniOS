@@ -1,7 +1,3 @@
-PAGE_SIZE = 4 * 1024  # 4 KB pages
-MEMORY_SIZE = 128 * 1024  # 128 KB memory
-DISK_SIZE = 256 * 1024 # 256 KB disk
-
 class PageTableEntry:
     def __init__(self):
         self.frame_number = None
@@ -11,12 +7,14 @@ class PageTableEntry:
         self.use_bit = False
 
 class MemoryManager:
-    def __init__(self):
-        self.num_frames = MEMORY_SIZE // PAGE_SIZE
-        self.num_disk_frames = DISK_SIZE // PAGE_SIZE
+    def __init__(self, page_size, num_frames, num_disk_frames): # MODIFIED
+        self.page_size = int(page_size) 
+        self.num_frames = int(num_frames) 
+        self.num_disk_frames = int(num_disk_frames)
+        
         # frame_table[frame_idx] = {'pid': pid, 'vpage': virtual_page_num} or None if free
         self.frame_table = [None] * self.num_frames
-        self.disk_blocks = [None] * (self.num_disk_frames)
+        self.disk_blocks = [None] * self.num_disk_frames
         self.free_frames = list(range(self.num_frames)) # List of free frame indices
         self.free_disk_blocks = list(range(self.num_disk_frames))
         self.pid_to_pcb_map = {} # Helper to get PCB from PID for deallocation if needed
@@ -289,8 +287,8 @@ class MemoryManager:
         if not pcb:
             return f"Error: Process PID {pid} not found."
 
-        page_number = virtual_address // PAGE_SIZE
-        offset = virtual_address % PAGE_SIZE
+        page_number = virtual_address // self.page_size # USE self.page_size
+        offset = virtual_address % self.page_size # USE self.page_size
 
         # Check if page_number is out of process's logical address space defined by num_pages_required
         if not (0 <= page_number < pcb.num_pages_required):
@@ -317,5 +315,5 @@ class MemoryManager:
         # At this point, pte is valid and pte.frame_number is the physical frame
         # Set use_bit on any successful access (hit or resolved miss)
         pte.use_bit = True # This is the key part for simulating access for Clock
-        physical_address = pte.frame_number * PAGE_SIZE + offset
+        physical_address = pte.frame_number * self.page_size + offset # USE self.page_size
         return f"PID {pid}: VA {virtual_address} (Page {page_number}, Offset {offset}) -> PA {physical_address} (Frame {pte.frame_number})"
