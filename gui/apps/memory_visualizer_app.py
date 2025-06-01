@@ -1,62 +1,127 @@
 import PySimpleGUI as sg
-from os_core.memory_manager import MemoryManager, PAGE_SIZE
+from os_core.memory_manager import MemoryManager
 from os_core.process import PCB
 
 class MemoryVisualizerApp:
-    def __init__(self): 
-        PCB.reset_pid_counter() # Reset PID counter for this app session
-        self.mm = MemoryManager()
-        self.simulated_processes = {} # pid: PCB
+    def _show_settings_dialog(self):
+        default_settings = {'page_size': 4096, 'num_frames': 32, 'num_disk_frames': 64}
+        layout = [
+            [sg.Text("Initial Simulation Settings", font=("Helvetica", 14))],
+            [sg.Text("Page Size (bytes):"), sg.Input(default_settings['page_size'], size=(10, 1), key='-PAGE_SIZE-')],
+            [sg.Text("Memory Frames:"), sg.Input(default_settings['num_frames'], size=(10, 1), key='-NUM_FRAMES-')],
+            [sg.Text("Disk Blocks:"), sg.Input(default_settings['num_disk_frames'], size=(10, 1), key='-NUM_DISK_FRAMES-')],
+            [sg.Button("Apply Settings"), sg.Button("Reset Defaults"), sg.Button("Close Settings")]
+        ]
+        window = sg.Window("Configure Simulation", layout, modal=True, finalize=True)
+        
+        parsed_settings = None
+        while True:
+            event, values = window.read()
+            if event in (sg.WIN_CLOSED, "Close Settings"):
+                # Ensure parsed_settings remains None if dialog is closed without applying
+                parsed_settings = None 
+                break 
+            elif event == "Reset Defaults":
+                window['-PAGE_SIZE-'].update(default_settings['page_size'])
+                window['-NUM_FRAMES-'].update(default_settings['num_frames'])
+                window['-NUM_DISK_FRAMES-'].update(default_settings['num_disk_frames'])
+            elif event == "Apply Settings":
+                try:
+                    ps = int(values['-PAGE_SIZE-'])
+                    nf = int(values['-NUM_FRAMES-'])
+                    ndf = int(values['-NUM_DISK_FRAMES-'])
+                    if ps <= 0 or nf <= 0 or ndf < 0: 
+                        sg.popup_error("Page Size and Memory Frames must be positive. Disk Blocks must be non-negative.", title="Input Error")
+                        continue
+                    parsed_settings = {'page_size': ps, 'num_frames': nf, 'num_disk_frames': ndf}
+                    break 
+                except ValueError:
+                    sg.popup_error("Please enter valid numbers for all settings.", title="Input Error")
+                    # No need to continue here, loop will naturally continue
+        
+        window.close()
+        return parsed_settings
 
-        # Display settings (can be shared or specific)
-        self.items_per_row = 8 # Used for both RAM frames and Disk blocks
-        self.item_box_size = (60, 40) # width, height for each box
+    def _update_process_list_display(self):
+        process_display_list = []
+        for pid, pcb in self.simulated_processes.items():
+            process_display_list.append(f"PID: {pid} - {pcb.name} ({pcb.state})")
+        self.window['-PROCESS_LIST-'].update(values=process_display_list)
 
-        # RAM Tab Layout
+    def _update_selected_process_info(self, pid):
+        pcb = self.simulated_processes.get(pid)
+        if pcb:
+            info_str = f"PID: {pcb.pid}\nName: {pcb.name}\nState: {pcb.state}\nPages Req: {pcb.num_pages_required}"
+            self.window['-PROCESS_INFO-'].update(info_str)
+            
+            pt_str = "Page Table:\nVP | Frame | Valid | OnDisk | DiskBlk | UseBit\n--------------------------------------------------\n"
+            for vp, pte in sorted(pcb.page_table.items()):
+                pt_str += f"{vp:<2} | {str(pte.frame_number):<5} | {str(pte.valid):<5} | {str(pte.on_disk):<6} | {str(pte.disk_block_number):<7} | {pte.use_bit}\n"
+            self.window['-PAGE_TABLE_DISPLAY-'].update(pt_str)
+        else:
+            self.window['-PROCESS_INFO-'].update("")
+            self.window['-PAGE_TABLE_DISPLAY-'].update("")
+
+    def __init__(self):
+        PCB.reset_pid_counter()
+
+        initial_settings = self._show_settings_dialog()
+
+        if initial_settings is None:
+            print("Memory Visualizer setup cancelled by user or failed.")
+            self.window = None
+            return
+
+        self.mm = MemoryManager(page_size=initial_settings['page_size'],
+                                num_frames=initial_settings['num_frames'],
+                                num_disk_frames=initial_settings['num_disk_frames'])
+        self.simulated_processes = {}
+
+        self.items_per_row = 8
+        self.item_box_size = (60, 40)
+        
         ram_layout = [
             [sg.Frame("Memory Frames", self._create_ram_display_layout(), key='-RAM_FRAME_DISPLAY-')],
-            [sg.Text(f"Page Size: {PAGE_SIZE} bytes", key='-PAGE_SIZE_INFO-')],
+            [sg.Text(f"Page Size: {self.mm.page_size} bytes", key='-PAGE_SIZE_INFO-')],
             [sg.Text(f"Total RAM Frames: {self.mm.num_frames}, Free: {self.mm.get_free_frames_count()}", key='-MEM_STATS-')]
         ]
 
-        # Disk Tab Layout
         disk_layout = [
             [sg.Frame("Disk Blocks", self._create_disk_display_layout(), key='-DISK_BLOCK_DISPLAY-')],
-            [sg.Text(f"Block Size (same as Page): {PAGE_SIZE} bytes")],
+            [sg.Text(f"Block Size (same as Page): {self.mm.page_size} bytes", key='-DISK_BLOCK_INFO-')],
             [sg.Text(f"Total Disk Blocks: {self.mm.num_disk_frames}, Free: {self.mm.get_free_disk_blocks_count()}", key='-DISK_STATS-')]
         ]
 
-        tab_group_layout = [[
-            sg.Tab('RAM View', ram_layout, key='-RAM_TAB-'),
-            sg.Tab('Disk View', disk_layout, key='-DISK_TAB-')
-        ]]
+        process_management_layout = [
+            [sg.Text("Process Name Prefix:"), sg.Input("Proc", size=(10,1), key='-PROC_NAME_PREFIX-'),
+             sg.Text("Mem Req (bytes):"), sg.Input("8192", size=(10,1), key='-MEM_REQ-'),
+             sg.Button("Create Process", key='-CREATE_PROC-')],
+            [sg.Text("Logical Address:"), sg.Input("0", size=(10,1), key='-LOGICAL_ADDR-'),
+             sg.Button("Access Address", key='-ACCESS_ADDR-'),
+             sg.Button("Release Memory", key='-RELEASE_MEM-')],
+            [sg.Listbox(values=[], size=(40, 5), key='-PROCESS_LIST-', enable_events=True)],
+            [sg.Text("Selected Process Info:", size=(60,1), key='-PROCESS_INFO-')],
+            [sg.Multiline(size=(60, 10), key='-PAGE_TABLE_DISPLAY-', disabled=True, autoscroll=True)],
+        ]
 
-        controls_layout = [
-            [
-                sg.Text("Proc Name:"), sg.Input("P", size=(5,1), key='-PROC_NAME_PREFIX-'),
-                sg.Text("Mem (bytes):"), sg.Input("8192", size=(8,1), key='-MEM_REQ-'),
-                sg.Button("Create & Allocate", key='-ALLOCATE-')
-            ],
-            [
-                sg.Text("PID to Dealloc:"), sg.Input(size=(5,1), key='-PID_DEALLOC-'),
-                sg.Button("Deallocate", key='-DEALLOCATE-')
-            ],
-            [
-                sg.Text("PID:"), sg.Input(size=(5,1), key='-PID_TRANSLATE-'),
-                sg.Text("VA:"), sg.Input(size=(8,1), key='-VA_TRANSLATE-'),
-                sg.Button("Translate Addr", key='-TRANSLATE-')
-            ],
-            [sg.Multiline(size=(80, 5), key='-LOG-', autoscroll=True, reroute_stdout=True, write_only=True, disabled=True)], # Increased width
-            [sg.Button("Refresh View"), sg.Button("Close")]
+        logging_layout = [
+            [sg.Multiline(size=(80,10), key='-LOG_OUTPUT-', reroute_stdout=True, write_only=True, autoscroll=True)]
         ]
         
-        layout = [
-            [sg.Text("Memory Visualizer", font=("Helvetica", 16))],
-            [sg.TabGroup(tab_group_layout, enable_events=True, key='-TABGROUP-')],
-            [sg.Column(controls_layout, element_justification='center')]
+        # Main layout with tabs
+        tab_group_layout = [[sg.TabGroup([
+            [sg.Tab('RAM', ram_layout)],
+            [sg.Tab('Disk', disk_layout)],
+            [sg.Tab('Process Management', process_management_layout)],
+            [sg.Tab('Logs', logging_layout)]
+        ])]]
+
+        # Layout without the "Change Settings" button
+        full_layout = [
+            tab_group_layout
         ]
 
-        self.window = sg.Window("Memory Management Demo", layout, modal=True, finalize=True)
+        self.window = sg.Window("Memory Management Visualizer", full_layout, finalize=True)
         self._update_ram_display() 
         self._update_disk_display()
 
@@ -115,67 +180,105 @@ class MemoryVisualizerApp:
         self._update_disk_display()
 
     def run(self):
+        if not self.window:
+            return
+
         while True:
             event, values = self.window.read()
-            if event in (sg.WIN_CLOSED, "Close"):
-                # Clean up simulated processes if necessary (deallocate all)
-                for pid_key in list(self.simulated_processes.keys()): # Use pid_key to avoid confusion with pid var
-                    self.mm.deallocate_memory(pid_key)
-                self.simulated_processes.clear()
+            if event == sg.WIN_CLOSED:
                 break
-
-            if event == '-ALLOCATE-':
+            elif event == '-CREATE_PROC-': # Changed from -ALLOCATE-
                 try:
                     mem_req_bytes = int(values['-MEM_REQ-'])
                     name_prefix = values['-PROC_NAME_PREFIX-']
                     if mem_req_bytes <= 0:
-                        print("Error: Memory requirement must be positive.")
+                        sg.popup_error("Memory requirement must be positive.", title="Input Error")
                         continue
                     
-                    new_pcb = PCB(name=name_prefix, memory_requirements_bytes=mem_req_bytes)
+                    new_pcb = PCB(name=name_prefix, memory_requirements_bytes=mem_req_bytes, page_size=self.mm.page_size)
                     
                     print(f"Attempting to allocate {new_pcb.num_pages_required} pages ({mem_req_bytes} bytes) for new process {new_pcb.name} (PID {new_pcb.pid})...")
                     if self.mm.allocate_memory(new_pcb):
                         self.simulated_processes[new_pcb.pid] = new_pcb
                         print(f"Successfully allocated memory for PID {new_pcb.pid}.")
+                        self._update_process_list_display() # Update process list
                     else:
                         print(f"Failed to allocate memory for PID {new_pcb.pid}. Not enough memory or other issue.")
+                        sg.popup_error(f"Failed to allocate memory for PID {new_pcb.pid}.\nNot enough memory or other issue.", title="Allocation Error")
                 except ValueError:
-                    print("Error: Invalid memory requirement. Must be an integer.")
+                    sg.popup_error("Invalid memory requirement. Must be an integer.", title="Input Error")
                 self._full_refresh()
 
-            elif event == '-DEALLOCATE-':
+            elif event == '-RELEASE_MEM-': # Changed from -DEALLOCATE-
+                selected_process_str = values['-PROCESS_LIST-']
+                if not selected_process_str:
+                    sg.popup_error("Please select a process from the list to release memory.", title="Input Error")
+                    continue
                 try:
-                    pid_to_dealloc = int(values['-PID_DEALLOC-'])
+                    # Extract PID from the selected string, e.g., "PID: 1 - Proc_1 (READY)"
+                    pid_to_dealloc = int(selected_process_str[0].split(" ")[1]) 
                     if pid_to_dealloc not in self.simulated_processes:
-                        print(f"Error: PID {pid_to_dealloc} not found among simulated processes.")
+                        sg.popup_error(f"PID {pid_to_dealloc} not found.", title="Error")
                     else:
                         print(f"Attempting to deallocate memory for PID {pid_to_dealloc}...")
                         if self.mm.deallocate_memory(pid_to_dealloc):
-                            del self.simulated_processes[pid_to_dealloc]
+                            # Update the PCB state in simulated_processes before removing, or rely on deallocate_memory to do it
+                            # For now, let's assume deallocate_memory sets PCB state to TERMINATED
+                            # We need to refresh the list based on the updated pcb.state or remove it
+                            # For simplicity, we remove and update list. If keeping terminated processes is desired, adjust logic.
+                            if pid_to_dealloc in self.simulated_processes: # Check if it was actually removed by deallocate_memory
+                                del self.simulated_processes[pid_to_dealloc]
                             print(f"Successfully deallocated memory for PID {pid_to_dealloc}.")
+                            self._update_process_list_display() # Update process list
+                            self._update_selected_process_info(None) # Clear selection info
                         else:
-                            print(f"Failed to deallocate memory for PID {pid_to_dealloc} (it might not have been allocated or already deallocated).")
-                except ValueError:
-                    print("Error: Invalid PID for deallocation. Must be an integer.")
+                            print(f"Failed to deallocate memory for PID {pid_to_dealloc}.")
+                            sg.popup_error(f"Failed to deallocate memory for PID {pid_to_dealloc}.", title="Deallocation Error")
+                except (ValueError, IndexError):
+                    sg.popup_error("Invalid selection or PID format for deallocation.", title="Input Error")
                 self._full_refresh()
             
-            elif event == '-TRANSLATE-':
+            elif event == '-ACCESS_ADDR-': # Changed from -TRANSLATE-
+                selected_process_str = values['-PROCESS_LIST-']
+                if not selected_process_str:
+                    sg.popup_error("Please select a process from the list to access an address.", title="Input Error")
+                    continue
                 try:
-                    pid = int(values['-PID_TRANSLATE-'])
-                    va = int(values['-VA_TRANSLATE-'])
+                    pid = int(selected_process_str[0].split(" ")[1])
+                    va = int(values['-LOGICAL_ADDR-'])
+                    if pid not in self.simulated_processes:
+                        sg.popup_error(f"PID {pid} not found.", title="Error")
+                        continue
+
+                    print(f"Attempting to access VA {va} for PID {pid}...")
                     result = self.mm.translate(pid, va)
                     print(f"Translation: {result}")
-                    # Translation might cause swapping, so refresh displays
+                    if "Error:" in result or "Page fault handled: False" in result:
+                         sg.popup_error(f"Address Access Error for PID {pid}, VA {va}:\n{result}", title="Access Error")
+
+                    # Refresh displays as translation might cause swapping or use_bit changes
                     self._full_refresh() 
-                except ValueError:
-                    print("Error: PID and Virtual Address must be integers.")
+                    self._update_selected_process_info(pid) # Refresh page table view for use_bit changes
+                except (ValueError, IndexError):
+                    sg.popup_error("PID or Virtual Address must be valid integers and a process selected.", title="Input Error")
                 except Exception as e:
                     print(f"Translation error: {e}")
-                    self._full_refresh() # Refresh even on error, state might have changed partially
+                    sg.popup_error(f"An unexpected error occurred during address access: {e}", title="Access Error")
+                    self._full_refresh()
 
+            elif event == '-PROCESS_LIST-': # Event when a process is selected from the listbox
+                if values['-PROCESS_LIST-']:
+                    selected_process_str = values['-PROCESS_LIST-'][0]
+                    try:
+                        pid = int(selected_process_str.split(" ")[1])
+                        self._update_selected_process_info(pid)
+                    except (IndexError, ValueError):
+                        print("Error parsing PID from process list selection.")
+                        self._update_selected_process_info(None)
+                else:
+                    self._update_selected_process_info(None)
 
-            elif event == "Refresh View":
+            elif event == "Refresh View": # This key is not in the layout, but keeping handler if used elsewhere
                 self._full_refresh()
                 print("View refreshed.")
         
