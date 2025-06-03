@@ -9,7 +9,7 @@ from gui.apps.terminal import TerminalApp
 from gui.apps.game_app import GameApp
 from gui.apps.memory_visualizer_app import MemoryVisualizerApp
 from gui.apps.gemini_chat_app import GeminiChatApp
-from gui.apps.process_manager_visualizer_app import ProcessManagerVisualizerApp # Add this line
+from gui.apps.process_manager_visualizer_app import ProcessManagerVisualizerApp
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -20,7 +20,7 @@ icon_memoryVis_path = os.path.join(BASEDIR, 'resources', 'memory_vis.png')
 icon_start_path = os.path.join(BASEDIR, 'resources', 'start.png')
 wallpaper_path = os.path.join(BASEDIR, 'resources', 'wallpaper.png')
 icon_ai_path = os.path.join(BASEDIR, 'resources', 'gemini.png')
-icon_scheduler_vis_path = os.path.join(BASEDIR, 'resources', 'scheduler_vis.png') # Add this line
+icon_scheduler_vis_path = os.path.join(BASEDIR, 'resources', 'scheduler_vis.png')
 
 class MainWindow:
     DESKTOP_ICON_SIZE = (48, 48)
@@ -43,7 +43,7 @@ class MainWindow:
             {'key': 'Game', 'text': 'Game', 'image_path': icon_game_path},
             {'key': 'Memory', 'text': 'Memory', 'image_path': icon_memoryVis_path},
             {'key': 'AIChat', 'text': 'AI Chat', 'image_path': icon_ai_path},
-            {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path}, # Add this line
+            {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path},
         ]
         self.clickable_icon_areas = {}
 
@@ -235,9 +235,10 @@ class MainWindow:
             'Terminal': TerminalApp,
             'Game': GameApp,
             'Memory': MemoryVisualizerApp,
-            'AIChat': GeminiChatApp
+            'AIChat': GeminiChatApp,
+            'SchedulerVisualizer': ProcessManagerVisualizerApp
         }
-        GAME_TICK_INTERVAL = 200  
+        GAME_TICK_INTERVAL = 200 
 
         while True:
             window_that_had_event, event, values = sg.read_all_windows(timeout=GAME_TICK_INTERVAL)
@@ -254,8 +255,8 @@ class MainWindow:
                     game_window, game_instance = open_windows['Game']
                     if game_window and hasattr(game_instance, 'handle_event'):
                         game_instance.handle_event("TIMER_TICK", None)
-            
 
+            
             elif window_that_had_event is not None:
                 current_app_key = None
                 current_app_instance = None
@@ -278,6 +279,7 @@ class MainWindow:
                             [sg.Button('Game', size=(20,1), button_color=self.button_color, key='Game')],
                             [sg.Button('Memory', size=(20,1), button_color=self.button_color, key='Memory')],
                             [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
+                            [sg.Button('Scheduler Visualizer', size=(20,1), button_color=self.button_color, key='SchedulerVisualizer')], 
                             [sg.HorizontalSeparator(color='#1976d2')],
                             [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
                         ]
