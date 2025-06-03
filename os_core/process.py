@@ -3,11 +3,13 @@ import itertools
 class PCB:
     _pid_counter = itertools.count(1)
 
-    def __init__(self, name, memory_requirements_bytes, priority=0, burst_time=10): # Added burst_time
+    def __init__(self, name, memory_requirements_bytes, page_size, priority=0, burst_time=10): # MODIFIED: Added page_size parameter
         self.pid = next(PCB._pid_counter)
         self.name = name
         self.state = 'NEW'  # NEW, READY, RUNNING, WAITING, TERMINATED
         self.memory_requirements_bytes = memory_requirements_bytes
+        if not isinstance(page_size, int) or page_size <= 0:
+            raise ValueError("page_size must be a positive integer for PCB.")
         self.num_pages_required = (memory_requirements_bytes + page_size - 1) // page_size # Calculate pages
         self.page_table = {}  # Virtual Page Num -> PageTableEntry object
         self.program_counter = 0
