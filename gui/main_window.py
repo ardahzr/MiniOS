@@ -38,6 +38,7 @@ class MainWindow:
         self.taskbar_bg = "#30528a"
         self.start_menu_bg = '#1565c0'
         self.button_color = ('white', self.start_menu_bg)
+        self.taskbar_app_button_color = ('white', '#4A698A')
 
         self.desktop_icon_configs = [
             {'key': 'File Explorer', 'text': 'File Explorer', 'image_path': icon_folder_path},
@@ -49,10 +50,20 @@ class MainWindow:
             {'key': 'ChatApp', 'text': 'Network Chat', 'image_path': icon_chat_path},
         ]
         self.clickable_icon_areas = {}
+        self.taskbar_app_keys = [] 
+        self.minimized_windows = {} 
+        self.open_windows = {}
+        self.taskbar_buttons = []
+        
+        self.taskbar_icons = {}
+        self.taskbar_icon_size = (40, 40)
+        for icon_config in self.desktop_icon_configs:
+            self.taskbar_icons[icon_config['key']] = self._get_icon_image_bytes(
+                icon_config['image_path'], self.taskbar_icon_size)
 
-        start_icon_height_config = 40 
-        taskbar_button_padding = 8
-        self.taskbar_height = start_icon_height_config + taskbar_button_padding 
+        start_icon_height_config = 48
+        taskbar_button_padding = 12
+        self.taskbar_height = start_icon_height_config + taskbar_button_padding
 
         window_width, window_height = 1440, 810
         self.desktop_graph_width = window_width
@@ -66,7 +77,7 @@ class MainWindow:
                 key='-DESKTOP_GRAPH-',
                 enable_events=True,
                 pad=(0,0),
-                background_color='lightgrey'
+                background_color='lightgrey' 
             )
         ]]
 
@@ -85,27 +96,50 @@ class MainWindow:
         button_text_content = ''
         current_image_data = start_icon
         if start_icon is None:
-            button_text_content = 'ERR'
+            button_text_content = 'Start' 
             current_image_data = None
 
         button_pixel_width = start_icon_width + 8
         button_pixel_height = start_icon_height + 8
         clock_font_size_approx_pixels = 20
-
-        taskbar_layout = [[
-            sg.Button(button_text_content,
+        
+        MAX_APP_BUTTONS = 10
+        self.taskbar_buttons = []
+        
+        for i in range(MAX_APP_BUTTONS):
+            button = sg.Button('', key=f'-TASKBAR_BTN_{i}-', visible=False,
+                        size=(5,3),
+                        font=('Arial', 8), 
+                        button_color=(self.taskbar_bg, self.taskbar_bg),
+                        border_width=0,
+                        pad=(5,5))
+            self.taskbar_buttons.append(button)
+        
+        start_button = sg.Button(button_text_content,
                       image_data=current_image_data,
                       key='START',
                       button_color=(self.taskbar_bg, self.taskbar_bg),
                       border_width=0,
-                      pad=((10, 20), (0,0)),
-                      ),
-            sg.Push(),
-            sg.Text('', key='CLOCK',
+                      pad=((10, 25), (0,0)),
+                      )
+                      
+        app_buttons_column = sg.Column(
+            [[*self.taskbar_buttons]],
+            background_color=self.taskbar_bg,
+            pad=(10,0)
+        )
+        
+        clock_element = sg.Text('', key='CLOCK',
                     font=('Arial', 16),
                     pad=(10, (button_pixel_height - clock_font_size_approx_pixels) // 2 if button_pixel_height > clock_font_size_approx_pixels else 3),
                     background_color=self.taskbar_bg,
                     text_color='white')
+        
+        taskbar_layout = [[
+            start_button,
+            app_buttons_column,
+            sg.Push(background_color=self.taskbar_bg),
+            clock_element
         ]]
 
         layout = [
@@ -126,6 +160,8 @@ class MainWindow:
         self.desktop_graph = self.window['-DESKTOP_GRAPH-']
         self._draw_wallpaper()
         self._draw_desktop_icons_on_graph()
+        
+        self.open_windows['Desktop'] = (self.window, self)
         
         self.update_clock()
 
@@ -149,26 +185,29 @@ class MainWindow:
                 with io.BytesIO() as bio:
                     img.save(bio, format="PNG")
                     image_bytes = bio.getvalue()
-                
+                self.desktop_graph.erase()
                 self.desktop_graph.draw_image(data=image_bytes, location=(0,0))
             except Exception as e:
                 print(f"Error drawing wallpaper: {e}")
+                self.desktop_graph.erase()
+                self.desktop_graph.draw_text("Wallpaper Error", location=(self.desktop_graph_width/2, self.desktop_graph_height/2), font=("Arial", 24), color="red")
         else:
             print(f"Wallpaper image not found: {wallpaper_path}")
+            self.desktop_graph.erase()
+            self.desktop_graph.draw_text("Wallpaper Not Found", location=(self.desktop_graph_width/2, self.desktop_graph_height/2), font=("Arial", 24), color="red")
 
 
     def _draw_desktop_icons_on_graph(self):
         self.clickable_icon_areas.clear()
         current_x = self.DESKTOP_ICON_HORIZONTAL_PADDING
         current_y = self.DESKTOP_ICON_TOP_PADDING
-        approx_font_pixel_height = 12
+        approx_font_pixel_height = 12 
         approx_half_font_height = approx_font_pixel_height // 2
 
         for i, icon_config in enumerate(self.desktop_icon_configs):
             image_bytes = self._get_icon_image_bytes(icon_config['image_path'], self.DESKTOP_ICON_SIZE)
             
             icon_w, icon_h = self.DESKTOP_ICON_SIZE
-            
             img_x, img_y = current_x, current_y
 
             if image_bytes:
@@ -179,10 +218,8 @@ class MainWindow:
 
             text_content = icon_config['text']
             text_area_height_approx = 20 
-            
             text_x_center = img_x + icon_w / 2
             text_y_anchor_top = img_y + icon_h + 5
-
             text_draw_location_y = text_y_anchor_top + approx_half_font_height
 
             self.desktop_graph.draw_text(
@@ -191,31 +228,42 @@ class MainWindow:
                 font=self.DESKTOP_ICON_TEXT_FONT,
                 color=self.DESKTOP_ICON_TEXT_COLOR
             )
-
             clickable_x1 = img_x
             clickable_y1 = img_y 
             clickable_x2 = img_x + icon_w
             clickable_y2 = text_y_anchor_top + text_area_height_approx 
-            
             self.clickable_icon_areas[icon_config['key']] = (clickable_x1, clickable_y1, clickable_x2, clickable_y2)
-
             current_y += self.DESKTOP_ICON_VERTICAL_SPACING
-
 
     def update_clock(self):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.window['CLOCK'].update(current_time)
+        if self.window and not self.window.was_closed():
+             self.window['CLOCK'].update(current_time)
         
 
-    @staticmethod
-    def _safe_icon_button(text, icon_path, key):
-        if os.path.exists(icon_path) and icon_path.lower().endswith(('.png', '.gif')):
-            return sg.Button(text, image_filename=icon_path, image_size=(32,32), pad=(5,5), key=key)
-        else:
-            return sg.Button(text, pad=(5,5), key=key)
+    def _redraw_taskbar_apps(self):
+        for i in range(len(self.taskbar_buttons)):
+            btn_key = f'-TASKBAR_BTN_{i}-'
+            self.window[btn_key].update(visible=False)
+
+        for i, app_key in enumerate(self.taskbar_app_keys):
+            if i >= len(self.taskbar_buttons):
+                print(f"Uyarı: Çok fazla açık uygulama var ({len(self.taskbar_app_keys)}), bazıları gösterilmeyecek.")
+                break
+
+            if app_key in self.open_windows and self.open_windows[app_key] is not None:
+                icon_data = self.taskbar_icons.get(app_key)
+                
+                btn_key = f'-TASKBAR_BTN_{i}-'
+                self.window[btn_key].update(
+                    image_data=icon_data,
+                    visible=True, 
+                    button_color=(self.taskbar_bg, self.taskbar_bg)
+                )
+                self.window[btn_key].metadata = app_key
+
 
     def run(self):
-        open_windows = {'Desktop': (self.window, self)}
         app_classes = {
             'File Explorer': FileExplorerApp,
             'Terminal': TerminalApp,
@@ -232,32 +280,55 @@ class MainWindow:
             self.update_clock()
 
             if event == sg.WIN_CLOSED and window_that_had_event == self.window:
-                for _key, (win_to_close, app_instance_to_close) in list(open_windows.items()):
+                for _key, (win_to_close, app_instance_to_close) in list(self.open_windows.items()):
                     if _key != 'Desktop' and hasattr(app_instance_to_close, '_shutdown_client'):
-                        app_instance_to_close._shutdown_client()
-                    if hasattr(win_to_close, 'close'):
+                        try:
+                            app_instance_to_close._shutdown_client()
+                        except Exception as e:
+                            print(f"Error shutting down client for {_key}: {e}")
+                    if win_to_close and hasattr(win_to_close, 'close') and not win_to_close.was_closed():
                         try:
                             win_to_close.close()
-                        except: pass
+                        except Exception as e:
+                            print(f"Error closing window {_key} during main exit: {e}")
                 break 
             
             if window_that_had_event is None and event != sg.TIMEOUT_EVENT: 
-                 break
- 
+                 if not self.open_windows or all(w.was_closed() for w, _ in self.open_windows.values() if w is not None):
+                    break
+
             if event == sg.TIMEOUT_EVENT:
-                if 'Game' in open_windows:
-                    game_window, game_instance = open_windows['Game']
-                    if game_window and hasattr(game_instance, 'handle_event'):
+                if 'Game' in self.open_windows:
+                    game_window, game_instance = self.open_windows['Game']
+                    if game_window and not game_window.was_closed() and hasattr(game_instance, 'handle_event'):
                         game_instance.handle_event("TIMER_TICK", None)
                 
-
+                # Refresh ChatApp windows if any
+                for app_key_iter, (win_instance_iter, app_instance_ref_iter) in list(self.open_windows.items()):
+                    if app_key_iter == 'ChatApp' and win_instance_iter and not win_instance_iter.was_closed() and hasattr(app_instance_ref_iter, 'handle_event'):
+                        app_instance_ref_iter.handle_event("REFRESH_CHAT_DISPLAY", None)
             
+            elif event and event.startswith('-TASKBAR_BTN_'):
+                button_ref = window_that_had_event[event]
+                if hasattr(button_ref, 'metadata') and button_ref.metadata:
+                    app_key_from_event = button_ref.metadata
+                    
+                    if app_key_from_event in self.open_windows:
+                        target_window, _ = self.open_windows[app_key_from_event]
+                        if target_window and not target_window.was_closed():
+                            if self.minimized_windows.get(app_key_from_event, False):
+                                target_window.un_hide()
+                                self.minimized_windows[app_key_from_event] = False
+                                target_window.bring_to_front()
+                            else:
+                                target_window.bring_to_front() 
+
             elif window_that_had_event is not None:
                 current_app_key = None
                 current_app_instance = None
                 current_win_ref = None
 
-                for key_iter, (win_iter, app_instance_iter) in open_windows.items():
+                for key_iter, (win_iter, app_instance_iter) in self.open_windows.items():
                     if win_iter == window_that_had_event:
                         current_app_key = key_iter
                         current_app_instance = app_instance_iter
@@ -265,8 +336,6 @@ class MainWindow:
                         break
                 
                 if current_app_key == 'Desktop':
-                    if event == sg.WIN_CLOSED:
-                        return 
                     if event == 'START':
                         start_menu_layout = [
                             [sg.Button('File Explorer', size=(20,1), button_color=self.button_color, key='File Explorer')],
@@ -286,7 +355,7 @@ class MainWindow:
                         
                         num_items = len(start_menu_layout)
                         button_height_approx = 30 
-                        menu_height_approx = num_items * button_height_approx
+                        menu_height_approx = num_items * button_height_approx + (num_items * 5) 
 
                         start_menu_y = taskbar_y_abs - menu_height_approx 
 
@@ -298,7 +367,7 @@ class MainWindow:
                             keep_on_top=True, 
                             finalize=True, 
                             background_color=self.start_menu_bg,
-                            grab_anywhere=False
+                            grab_anywhere=False 
                         )
                         
                         menu_choice, _ = start_menu.read(timeout=10000) 
@@ -306,9 +375,8 @@ class MainWindow:
                         
                         if menu_choice:
                             if menu_choice == 'Exit':
-                                event = sg.WIN_CLOSED 
-                                window_that_had_event = self.window
-                                break 
+                                self.window.write_event_value(sg.WIN_CLOSED, None) 
+                                continue 
                             event = menu_choice 
 
                     elif event == '-DESKTOP_GRAPH-':
@@ -320,29 +388,49 @@ class MainWindow:
                                     event = icon_key 
                                     break
                     
-                    if event in app_classes and event not in open_windows:
+                    if event in app_classes and event not in self.open_windows:
                         app_instance_new = app_classes[event]()
                         app_window_new = getattr(app_instance_new, 'window', None)
                         if app_window_new is not None: 
-                            open_windows[event] = (app_window_new, app_instance_new)
+                            self.open_windows[event] = (app_window_new, app_instance_new)
+                            if event not in self.taskbar_app_keys: 
+                                self.taskbar_app_keys.append(event)
+                                self._redraw_taskbar_apps()
+                            self.minimized_windows[event] = False
                 
-                elif current_app_instance is not None: 
-                    result = current_app_instance.handle_event(event, values)
+                elif current_app_instance is not None and current_win_ref is not None: 
+                    result = None
+                    if hasattr(current_app_instance, 'handle_event'):
+                        result = current_app_instance.handle_event(event, values)
+                    
                     if result == 'close' or (event == sg.WIN_CLOSED and window_that_had_event == current_win_ref):
                         if hasattr(current_app_instance, '_shutdown_client'):
-                            current_app_instance._shutdown_client()
+                            try:
+                                current_app_instance._shutdown_client()
+                            except Exception as e:
+                                print(f"Error in _shutdown_client for {current_app_key}: {e}")
                         
-                        current_win_ref.close()
-                        if current_app_key in open_windows:
-                            del open_windows[current_app_key]
+                        if current_win_ref and not current_win_ref.was_closed():
+                            current_win_ref.close()
+
+                        if current_app_key in self.open_windows: 
+                            del self.open_windows[current_app_key] 
+                        if current_app_key in self.taskbar_app_keys:
+                            self.taskbar_app_keys.remove(current_app_key)
+                            self._redraw_taskbar_apps()
+                        if current_app_key in self.minimized_windows:
+                            del self.minimized_windows[current_app_key]
         
-        print("MainWindow run loop finished. Cleaning up...")
-        for _key, (win_to_close, app_instance_to_close) in list(open_windows.items()):
+        # Temizleme işlemleri
+        for _key, (win_to_close, app_instance_to_close) in list(self.open_windows.items()): 
             if _key != 'Desktop' and hasattr(app_instance_to_close, '_shutdown_client'):
-                app_instance_to_close._shutdown_client()
-            if hasattr(win_to_close, 'close'):
+                try:
+                    app_instance_to_close._shutdown_client()
+                except Exception as e:
+                     print(f"Error shutting down client for {_key} during final cleanup: {e}")
+            if win_to_close and hasattr(win_to_close, 'close') and not win_to_close.was_closed():
                 try:
                     win_to_close.close()
                 except Exception as e:
-                    print(f"Error closing window {_key} on exit: {e}")
-        print("Cleanup complete.")
+                    print(f"Error closing window {_key} on final exit: {e}")
+        self.open_windows.clear()
