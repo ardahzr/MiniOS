@@ -235,7 +235,8 @@ class MainWindow:
             'Terminal': TerminalApp,
             'Game': GameApp,
             'Memory': MemoryVisualizerApp,
-            'AIChat': GeminiChatApp
+            'AIChat': GeminiChatApp,
+            'SchedulerVisualizer': ProcessManagerVisualizerApp
         }
         GAME_TICK_INTERVAL = 200  
 
