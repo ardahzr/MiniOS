@@ -1,5 +1,4 @@
 import itertools
-from .memory_manager import PAGE_SIZE # Import PAGE_SIZE
 
 class PCB:
     _pid_counter = itertools.count(1)
@@ -9,7 +8,7 @@ class PCB:
         self.name = name
         self.state = 'NEW'  # NEW, READY, RUNNING, WAITING, TERMINATED
         self.memory_requirements_bytes = memory_requirements_bytes
-        self.num_pages_required = (memory_requirements_bytes + PAGE_SIZE - 1) // PAGE_SIZE # Calculate pages
+        self.num_pages_required = (memory_requirements_bytes + page_size - 1) // page_size # Calculate pages
         self.page_table = {}  # Virtual Page Num -> PageTableEntry object
         self.program_counter = 0
         self.registers = {}

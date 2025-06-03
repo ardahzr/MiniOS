@@ -61,7 +61,6 @@ class GeminiChatApp:
         self.window = sg.Window(
             'AI Chat', 
             layout, 
-            modal=True, 
             finalize=True, 
             element_justification='left'
         )
@@ -84,41 +83,41 @@ class GeminiChatApp:
         # Adds a blank line for spacing, with default text color
         self.window['-CHAT_HISTORY-'].print("", font=self.chat_font, text_color=self.default_text_color) 
 
+    def handle_event(self, event, values):
+        if event in (sg.WIN_CLOSED, 'Close'):
+            return 'close'
+
+        if event == '-SEND-':
+            user_input = values['-USER_INPUT-'].strip()
+            if not user_input:
+                return
+            if not self.model:
+                self._append_to_history("Gemini model is not available. Cannot send message.", speaker_prefix="System:")
+                self.window['-USER_INPUT-'].update('')
+                return
+            self._append_to_history(user_input, speaker_prefix="You:")
+            self.window['-USER_INPUT-'].update('')
+            try:
+                self.window.refresh()
+                response = self.model.generate_content(user_input)
+                if response and response.text:
+                    self._append_to_history(response.text, speaker_prefix="Gemini:")
+                elif response and response.prompt_feedback:
+                    self._append_to_history(f"No content generated. Feedback: {response.prompt_feedback}", speaker_prefix="Gemini:")
+                else:
+                    self._append_to_history("Received an empty response or an error occurred.", speaker_prefix="Gemini:")
+            except Exception as e:
+                error_message = f"Error communicating with Gemini API: {e}"
+                self._append_to_history(error_message, speaker_prefix="System:")
+        return None
+
     def run(self):
         while True:
             event, values = self.window.read()
 
-            if event in (sg.WIN_CLOSED, 'Close'):
+            result = self.handle_event(event, values)
+            if result == 'close':
                 break
-            
-            if event == '-SEND-':
-                user_input = values['-USER_INPUT-'].strip()
-                if not user_input:
-                    continue
-
-                if not self.model:
-                    self._append_to_history("Gemini model is not available. Cannot send message.", speaker_prefix="System:")
-                    self.window['-USER_INPUT-'].update('')
-                    continue
-
-                self._append_to_history(user_input, speaker_prefix="You:")
-                self.window['-USER_INPUT-'].update('') 
-
-                try:
-                    self.window.refresh() 
-                    response = self.model.generate_content(user_input) 
-                    
-                    if response and response.text:
-                        self._append_to_history(response.text, speaker_prefix="Gemini:")
-                    elif response and response.prompt_feedback:
-                         self._append_to_history(f"No content generated. Feedback: {response.prompt_feedback}", speaker_prefix="Gemini:")
-                    else:
-                        self._append_to_history("Received an empty response or an error occurred.", speaker_prefix="Gemini:")
-
-                except Exception as e:
-                    error_message = f"Error communicating with Gemini API: {e}"
-                    self._append_to_history(error_message, speaker_prefix="System:")
-                    # sg.popup_error(error_message, title="API Error") # Optional: also show as popup
         
         self.window.close()
 
