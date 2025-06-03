@@ -8,7 +8,8 @@ from gui.apps.file_explorer import FileExplorerApp
 from gui.apps.terminal import TerminalApp
 from gui.apps.game_app import GameApp
 from gui.apps.memory_visualizer_app import MemoryVisualizerApp
-from gui.apps.gemini_chat_app import GeminiChatApp 
+from gui.apps.gemini_chat_app import GeminiChatApp
+from gui.apps.process_manager_visualizer_app import ProcessManagerVisualizerApp # Add this line
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -19,6 +20,7 @@ icon_memoryVis_path = os.path.join(BASEDIR, 'resources', 'memory_vis.png')
 icon_start_path = os.path.join(BASEDIR, 'resources', 'start.png')
 wallpaper_path = os.path.join(BASEDIR, 'resources', 'wallpaper.png')
 icon_ai_path = os.path.join(BASEDIR, 'resources', 'gemini.png')
+icon_scheduler_vis_path = os.path.join(BASEDIR, 'resources', 'scheduler_vis.png') # Add this line
 
 class MainWindow:
     DESKTOP_ICON_SIZE = (48, 48)
@@ -41,6 +43,7 @@ class MainWindow:
             {'key': 'Game', 'text': 'Game', 'image_path': icon_game_path},
             {'key': 'Memory', 'text': 'Memory', 'image_path': icon_memoryVis_path},
             {'key': 'AIChat', 'text': 'AI Chat', 'image_path': icon_ai_path},
+            {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path}, # Add this line
         ]
         self.clickable_icon_areas = {}
 
