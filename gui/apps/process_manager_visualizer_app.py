@@ -50,7 +50,7 @@ class ProcessManagerVisualizerApp:
             [sg.Button("Close")]
         ]
 
-        self.window = sg.Window("Scheduler Visualizer", layout, modal=True, finalize=True)
+        self.window = sg.Window("Scheduler Visualizer", layout, finalize=True)
         self._update_queue_display()
 
     def _select_scheduler(self, scheduler_type):
@@ -128,115 +128,105 @@ class ProcessManagerVisualizerApp:
         self._update_queue_display()
         self._update_finished_display()
 
+    def handle_event(self, event, values): # run metodu handle_event olarak değiştirildi
+        if event in (sg.WIN_CLOSED, "Close"):
+            return 'close'
 
-    def run(self):
-        while True:
-            event, values = self.window.read()
+        if event == "-FIFO-":
+            self._select_scheduler("FIFO")
+        elif event == "-RR-":
+            self._select_scheduler("Round Robin")
+        elif event == "-MLFQ-":
+            self._select_scheduler("MLFQ")
 
-            if event in (sg.WIN_CLOSED, "Close"):
-                break
-
-            if event == "-FIFO-":
-                self._select_scheduler("FIFO")
-            elif event == "-RR-":
-                self._select_scheduler("Round Robin")
-            elif event == "-MLFQ-":
-                self._select_scheduler("MLFQ")
-
-            elif event == "-CREATE_PROC-":
-                try:
-                    burst_time = int(values["-PROC_BURST-"])
-                    if burst_time <= 0:
-                        sg.popup_error("Burst time must be positive.")
-                        continue
-                    
-                    # Create unique name for process using current PID count before creating PCB
-                    # This is a bit of a hack as PCB increments its counter upon init.
-                    # A better way would be to get the *next* PID without incrementing.
-                    # For now, we can use the length of self.processes or similar uniqueifier.
-                    # Or, let PCB handle PID and use that.
-                    
-                    pcb = PCB(name=f"{values['-PROC_NAME_PREFIX-']}{PCB._pid_counter.__reduce__()[1][0]}", # Gets current value of counter
-                              memory_requirements_bytes=0, # Not used in this sim
-                              burst_time=burst_time)
-                    self.processes[pcb.pid] = pcb
-                    
-                    if isinstance(self.scheduler, MLFQScheduler):
-                        self.scheduler.add_process(pcb, level=0) # New processes to highest priority
-                    else:
-                        self.scheduler.add_process(pcb)
-                    self._update_queue_display()
-                except ValueError:
-                    sg.popup_error("Invalid burst time. Must be an integer.")
-
-            elif event == "-RESET_SIM-":
-                self._reset_simulation()
-
-            elif event == "-NEXT_STEP-":
-                self.simulation_time += 1
-                self.window["-SIM_TIME-"].update(f"Time: {self.simulation_time}")
-
-                # If a process is running
-                if self.running_process:
-                    self.running_process.remaining_time -= 1
-                    self.running_process.time_in_current_quantum +=1
-                    self.time_slice_elapsed +=1
-
-                    if self.running_process.remaining_time <= 0:
-                        self.running_process.state = 'TERMINATED'
-                        self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Finished!")
-                        self._update_finished_display()
-                        self.running_process = None
-                        self.time_slice_elapsed = 0
-                    # Check for time slice expiry for RR and MLFQ
-                    elif self.time_slice_elapsed >= self.current_time_slice:
-                        if isinstance(self.scheduler, RoundRobinScheduler):
-                            self.running_process.state = 'READY'
-                            self.running_process.time_in_current_quantum = 0
-                            self.scheduler.add_process(self.running_process) # Add to end of RR queue
-                        elif isinstance(self.scheduler, MLFQScheduler):
-                            self.running_process.state = 'READY'
-                            current_level = -1
-                            # Find which queue it might have come from (not perfectly stored, infer or add to PCB)
-                            # For simplicity, demote if it used its full slice.
-                            # A more accurate MLFQ would track which queue it was in.
-                            # Here, we determine new level based on scheduler's logic.
-                            # If it used full quantum, demote (if not at lowest level)
-                            # This logic is simplified: assume it was from a queue that matches current_time_slice
-                            original_level = -1
-                            for i, tq in enumerate(self.scheduler.time_quanta):
-                                if tq == self.current_time_slice: # This assumes unique time quanta
-                                    original_level = i
-                                    break
-                            
-                            new_level = min(original_level + 1, self.scheduler.levels - 1) if original_level != -1 else 0
-                            self.running_process.time_in_current_quantum = 0
-                            self.scheduler.add_process(self.running_process, level=new_level)
-
-                        self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Quantum Expired")
-                        self.running_process = None
-                        self.time_slice_elapsed = 0
-                    else:
-                        self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Rem: {self.running_process.remaining_time}, SliceRem: {self.current_time_slice - self.time_slice_elapsed}")
-
-                # If no process is running, try to get one
-                if not self.running_process:
-                    next_proc, time_slice = self.scheduler.get_next()
-                    if next_proc:
-                        self.running_process = next_proc
-                        self.current_time_slice = time_slice if time_slice != float('inf') else self.running_process.remaining_time
-                        self.time_slice_elapsed = 0
-                        self.running_process.time_in_current_quantum = 0
-                        self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Rem: {self.running_process.remaining_time}, SliceRem: {self.current_time_slice - self.time_slice_elapsed}")
-                    else:
-                        self.window["-RUNNING_PROC-"].update("Running: None (Idle)")
+        elif event == "-CREATE_PROC-":
+            try:
+                burst_time = int(values["-PROC_BURST-"])
+                if burst_time <= 0:
+                    sg.popup_error("Burst time must be positive.")
+                    return None
                 
+                # Define a default page_size for processes in this visualizer.
+                # This app focuses on CPU scheduling; memory details are secondary here.
+                # Processes created here have memory_requirements_bytes=0.
+                default_page_size_for_scheduler = 4096 
+
+                pcb = PCB(name=f"{values['-PROC_NAME_PREFIX-']}{PCB._pid_counter.__reduce__()[1][0]}",
+                          memory_requirements_bytes=0, 
+                          page_size=default_page_size_for_scheduler, # MODIFIED: Added page_size
+                          burst_time=burst_time)
+                self.processes[pcb.pid] = pcb
+                
+                if isinstance(self.scheduler, MLFQScheduler):
+                    self.scheduler.add_process(pcb, level=0) 
+                else:
+                    self.scheduler.add_process(pcb)
                 self._update_queue_display()
+            except ValueError:
+                sg.popup_error("Invalid burst time. Must be an integer.")
 
-        self.window.close()
+        elif event == "-RESET_SIM-":
+            self._reset_simulation()
 
-if __name__ == '__main__':
-    # This is for testing the app standalone
-    # In your MiniOS, you would launch it from the main_window
-    app = ProcessManagerVisualizerApp()
-    app.run()
+        elif event == "-NEXT_STEP-":
+            self.simulation_time += 1
+            self.window["-SIM_TIME-"].update(f"Time: {self.simulation_time}")
+
+            if self.running_process:
+                self.running_process.remaining_time -= 1
+                self.running_process.time_in_current_quantum +=1
+                self.time_slice_elapsed +=1
+
+                if self.running_process.remaining_time <= 0:
+                    self.running_process.state = 'TERMINATED'
+                    self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Finished!")
+                    self._update_finished_display()
+                    self.running_process = None
+                    self.time_slice_elapsed = 0
+                elif self.time_slice_elapsed >= self.current_time_slice:
+                    if isinstance(self.scheduler, RoundRobinScheduler):
+                        self.running_process.state = 'READY'
+                        self.running_process.time_in_current_quantum = 0
+                        self.scheduler.add_process(self.running_process) 
+                    elif isinstance(self.scheduler, MLFQScheduler):
+                        self.running_process.state = 'READY'
+                        original_level = -1
+                        for i, tq in enumerate(self.scheduler.time_quanta):
+                            if tq == self.current_time_slice: 
+                                original_level = i
+                                break
+                        
+                        new_level = min(original_level + 1, self.scheduler.levels - 1) if original_level != -1 else 0
+                        self.running_process.time_in_current_quantum = 0
+                        self.scheduler.add_process(self.running_process, level=new_level)
+
+                    self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Quantum Expired")
+                    self.running_process = None
+                    self.time_slice_elapsed = 0
+                else:
+                    self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Rem: {self.running_process.remaining_time}, SliceRem: {self.current_time_slice - self.time_slice_elapsed}")
+
+            if not self.running_process:
+                next_proc, time_slice = self.scheduler.get_next()
+                if next_proc:
+                    self.running_process = next_proc
+                    self.current_time_slice = time_slice if time_slice != float('inf') else self.running_process.remaining_time
+                    self.time_slice_elapsed = 0
+                    self.running_process.time_in_current_quantum = 0
+                    self.window["-RUNNING_PROC-"].update(f"Running: {self.running_process.name} (PID {self.running_process.pid}) - Rem: {self.running_process.remaining_time}, SliceRem: {self.current_time_slice - self.time_slice_elapsed}")
+                else:
+                    self.window["-RUNNING_PROC-"].update("Running: None (Idle)")
+            
+            self._update_queue_display()
+        return None # handle_event metodundan None döndür
+
+# run metodunu kaldırın veya __main__ bloğu için saklayın
+# if __name__ == '__main__':
+#     app = ProcessManagerVisualizerApp()
+#     # app.run() # Bu satır artık doğrudan çağrılmayacak
+#     # Test için handle_event döngüsü eklenebilir veya app.window.read() ile basit test yapılabilir
+#     while True:
+#         event, values = app.window.read()
+#         if app.handle_event(event, values) == 'close':
+#             break
+#     app.window.close()

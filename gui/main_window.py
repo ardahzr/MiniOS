@@ -279,6 +279,7 @@ class MainWindow:
                             [sg.Button('Game', size=(20,1), button_color=self.button_color, key='Game')],
                             [sg.Button('Memory', size=(20,1), button_color=self.button_color, key='Memory')],
                             [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
+                            [sg.Button('Scheduler Visualizer', size=(20,1), button_color=self.button_color, key='SchedulerVisualizer')], 
                             [sg.HorizontalSeparator(color='#1976d2')],
                             [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
                         ]
