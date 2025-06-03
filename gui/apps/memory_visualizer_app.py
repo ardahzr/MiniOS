@@ -179,108 +179,83 @@ class MemoryVisualizerApp:
         self._update_ram_display()
         self._update_disk_display()
 
-    def run(self):
-        if not self.window:
-            return
+    def handle_event(self, event, values):
+        if event in (sg.WIN_CLOSED, 'Close'):
+            return 'close'
 
-        while True:
-            event, values = self.window.read()
-            if event == sg.WIN_CLOSED:
-                break
-            elif event == '-CREATE_PROC-': # Changed from -ALLOCATE-
-                try:
-                    mem_req_bytes = int(values['-MEM_REQ-'])
-                    name_prefix = values['-PROC_NAME_PREFIX-']
-                    if mem_req_bytes <= 0:
-                        sg.popup_error("Memory requirement must be positive.", title="Input Error")
-                        continue
-                    
-                    new_pcb = PCB(name=name_prefix, memory_requirements_bytes=mem_req_bytes, page_size=self.mm.page_size)
-                    
-                    print(f"Attempting to allocate {new_pcb.num_pages_required} pages ({mem_req_bytes} bytes) for new process {new_pcb.name} (PID {new_pcb.pid})...")
-                    if self.mm.allocate_memory(new_pcb):
-                        self.simulated_processes[new_pcb.pid] = new_pcb
-                        print(f"Successfully allocated memory for PID {new_pcb.pid}.")
-                        self._update_process_list_display() # Update process list
-                    else:
-                        print(f"Failed to allocate memory for PID {new_pcb.pid}. Not enough memory or other issue.")
-                        sg.popup_error(f"Failed to allocate memory for PID {new_pcb.pid}.\nNot enough memory or other issue.", title="Allocation Error")
-                except ValueError:
-                    sg.popup_error("Invalid memory requirement. Must be an integer.", title="Input Error")
-                self._full_refresh()
-
-            elif event == '-RELEASE_MEM-': # Changed from -DEALLOCATE-
-                selected_process_str = values['-PROCESS_LIST-']
-                if not selected_process_str:
-                    sg.popup_error("Please select a process from the list to release memory.", title="Input Error")
-                    continue
-                try:
-                    # Extract PID from the selected string, e.g., "PID: 1 - Proc_1 (READY)"
-                    pid_to_dealloc = int(selected_process_str[0].split(" ")[1]) 
-                    if pid_to_dealloc not in self.simulated_processes:
-                        sg.popup_error(f"PID {pid_to_dealloc} not found.", title="Error")
-                    else:
-                        print(f"Attempting to deallocate memory for PID {pid_to_dealloc}...")
-                        if self.mm.deallocate_memory(pid_to_dealloc):
-                            # Update the PCB state in simulated_processes before removing, or rely on deallocate_memory to do it
-                            # For now, let's assume deallocate_memory sets PCB state to TERMINATED
-                            # We need to refresh the list based on the updated pcb.state or remove it
-                            # For simplicity, we remove and update list. If keeping terminated processes is desired, adjust logic.
-                            if pid_to_dealloc in self.simulated_processes: # Check if it was actually removed by deallocate_memory
-                                del self.simulated_processes[pid_to_dealloc]
-                            print(f"Successfully deallocated memory for PID {pid_to_dealloc}.")
-                            self._update_process_list_display() # Update process list
-                            self._update_selected_process_info(None) # Clear selection info
-                        else:
-                            print(f"Failed to deallocate memory for PID {pid_to_dealloc}.")
-                            sg.popup_error(f"Failed to deallocate memory for PID {pid_to_dealloc}.", title="Deallocation Error")
-                except (ValueError, IndexError):
-                    sg.popup_error("Invalid selection or PID format for deallocation.", title="Input Error")
-                self._full_refresh()
-            
-            elif event == '-ACCESS_ADDR-': # Changed from -TRANSLATE-
-                selected_process_str = values['-PROCESS_LIST-']
-                if not selected_process_str:
-                    sg.popup_error("Please select a process from the list to access an address.", title="Input Error")
-                    continue
-                try:
-                    pid = int(selected_process_str[0].split(" ")[1])
-                    va = int(values['-LOGICAL_ADDR-'])
-                    if pid not in self.simulated_processes:
-                        sg.popup_error(f"PID {pid} not found.", title="Error")
-                        continue
-
-                    print(f"Attempting to access VA {va} for PID {pid}...")
-                    result = self.mm.translate(pid, va)
-                    print(f"Translation: {result}")
-                    if "Error:" in result or "Page fault handled: False" in result:
-                         sg.popup_error(f"Address Access Error for PID {pid}, VA {va}:\n{result}", title="Access Error")
-
-                    # Refresh displays as translation might cause swapping or use_bit changes
-                    self._full_refresh() 
-                    self._update_selected_process_info(pid) # Refresh page table view for use_bit changes
-                except (ValueError, IndexError):
-                    sg.popup_error("PID or Virtual Address must be valid integers and a process selected.", title="Input Error")
-                except Exception as e:
-                    print(f"Translation error: {e}")
-                    sg.popup_error(f"An unexpected error occurred during address access: {e}", title="Access Error")
-                    self._full_refresh()
-
-            elif event == '-PROCESS_LIST-': # Event when a process is selected from the listbox
-                if values['-PROCESS_LIST-']:
-                    selected_process_str = values['-PROCESS_LIST-'][0]
-                    try:
-                        pid = int(selected_process_str.split(" ")[1])
-                        self._update_selected_process_info(pid)
-                    except (IndexError, ValueError):
-                        print("Error parsing PID from process list selection.")
-                        self._update_selected_process_info(None)
+        if event == '-CREATE_PROC-':
+            try:
+                mem_req_bytes = int(values['-MEM_REQ-'])
+                name_prefix = values['-PROC_NAME_PREFIX-']
+                if mem_req_bytes <= 0:
+                    sg.popup_error("Memory requirement must be positive.", title="Input Error")
+                    return
+                new_pcb = PCB(name=name_prefix, memory_requirements_bytes=mem_req_bytes, page_size=self.mm.page_size)
+                if self.mm.allocate_memory(new_pcb):
+                    self.simulated_processes[new_pcb.pid] = new_pcb
+                    self._update_process_list_display()
                 else:
-                    self._update_selected_process_info(None)
+                    sg.popup_error(f"Failed to allocate memory for PID {new_pcb.pid}.\nNot enough memory or other issue.", title="Allocation Error")
+            except ValueError:
+                sg.popup_error("Invalid memory requirement. Must be an integer.", title="Input Error")
+            self._full_refresh()
 
-            elif event == "Refresh View": # This key is not in the layout, but keeping handler if used elsewhere
+        elif event == '-RELEASE_MEM-':
+            selected_process_str = values['-PROCESS_LIST-']
+            if not selected_process_str:
+                sg.popup_error("Please select a process from the list to release memory.", title="Input Error")
+                return
+            try:
+                pid_to_dealloc = int(selected_process_str[0].split(" ")[1])
+                if pid_to_dealloc not in self.simulated_processes:
+                    sg.popup_error(f"PID {pid_to_dealloc} not found.", title="Error")
+                else:
+                    if self.mm.deallocate_memory(pid_to_dealloc):
+                        if pid_to_dealloc in self.simulated_processes:
+                            del self.simulated_processes[pid_to_dealloc]
+                        self._update_process_list_display()
+                        self._update_selected_process_info(None)
+                    else:
+                        sg.popup_error(f"Failed to deallocate memory for PID {pid_to_dealloc}.", title="Deallocation Error")
+            except (ValueError, IndexError):
+                sg.popup_error("Invalid selection or PID format for deallocation.", title="Input Error")
+            self._full_refresh()
+
+        elif event == '-ACCESS_ADDR-':
+            selected_process_str = values['-PROCESS_LIST-']
+            if not selected_process_str:
+                sg.popup_error("Please select a process from the list to access an address.", title="Input Error")
+                return
+            try:
+                pid = int(selected_process_str[0].split(" ")[1])
+                va = int(values['-LOGICAL_ADDR-'])
+                if pid not in self.simulated_processes:
+                    sg.popup_error(f"PID {pid} not found.", title="Error")
+                    return
+                result = self.mm.translate(pid, va)
+                if "Error:" in result or "Page fault handled: False" in result:
+                    sg.popup_error(f"Address Access Error for PID {pid}, VA {va}:\n{result}", title="Access Error")
                 self._full_refresh()
-                print("View refreshed.")
-        
-        self.window.close()
+                self._update_selected_process_info(pid)
+            except (ValueError, IndexError):
+                sg.popup_error("PID or Virtual Address must be valid integers and a process selected.", title="Input Error")
+            except Exception as e:
+                sg.popup_error(f"An unexpected error occurred during address access: {e}", title="Access Error")
+                self._full_refresh()
+
+        elif event == '-PROCESS_LIST-':
+            if values['-PROCESS_LIST-']:
+                selected_process_str = values['-PROCESS_LIST-'][0]
+                try:
+                    pid = int(selected_process_str.split(" ")[1])
+                    self._update_selected_process_info(pid)
+                except (IndexError, ValueError):
+                    self._update_selected_process_info(None)
+            else:
+                self._update_selected_process_info(None)
+
+        elif event == "Refresh View":
+            self._full_refresh()
+
+        return None
 

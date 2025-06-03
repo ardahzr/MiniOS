@@ -4,7 +4,7 @@ import time
 
 CELL_SIZE = 20
 GRID_SIZE = 20
-SPEED = 100  # milliseconds
+SPEED = 100
 
 class SnakeGame:
     def __init__(self):
@@ -70,32 +70,35 @@ class GameApp:
             )],
             [sg.Button('Play'), sg.Button('Close')]
         ]
-        self.window = sg.Window('Game', layout, modal=True, return_keyboard_events=True, finalize=True)
+        self.window = sg.Window('Game', layout, finalize=True, return_keyboard_events=True)
         self.game = SnakeGame()
         self.running = False
 
-    def run(self):
-        graph = self.window['-GRAPH-']
-        while True:
-            event, values = self.window.read(timeout=SPEED if self.running else None)
-            if event in (sg.WIN_CLOSED, 'Close'):
-                break
-            elif event == 'Play':
-                self.game.reset()
-                self.running = True
-            elif event in ('Up:38', 'w', 'W'):
-                self.game.change_direction((0, -1))
-            elif event in ('Down:40', 's', 'S'):
-                self.game.change_direction((0, 1))
-            elif event in ('Left:37', 'a', 'A'):
-                self.game.change_direction((-1, 0))
-            elif event in ('Right:39', 'd', 'D'):
-                self.game.change_direction((1, 0))
+    def handle_event(self, event, values):
+        if event in (sg.WIN_CLOSED, 'Close'):
+            return 'close'
 
-            if self.running:
-                self.game.step()
-                self.game.draw(graph)
-                if self.game.game_over:
-                    sg.popup('Game Over! Score: %d' % (len(self.game.snake) - 1))
-                    self.running = False
-        self.window.close()
+        if event == 'Play':
+            self.game.reset()
+            self.running = True
+            self._draw()
+        elif event.startswith('Up') or event == 'Up:38':
+            self.game.change_direction((0, -1))
+        elif event.startswith('Down') or event == 'Down:40':
+            self.game.change_direction((0, 1))
+        elif event.startswith('Left') or event == 'Left:37':
+            self.game.change_direction((-1, 0))
+        elif event.startswith('Right') or event == 'Right:39':
+            self.game.change_direction((1, 0))
+
+        # Oyun tick'i (her event'te bir adım ilerlet)
+        if self.running and not self.game.game_over:
+            self.game.step()
+            self._draw()
+            if self.game.game_over:
+                sg.popup("Game Over!")
+                self.running = False
+        return None
+
+    def _draw(self):
+        self.game.draw(self.window['-GRAPH-'])
