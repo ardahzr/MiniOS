@@ -10,6 +10,7 @@ from gui.apps.game_app import GameApp
 from gui.apps.memory_visualizer_app import MemoryVisualizerApp
 from gui.apps.gemini_chat_app import GeminiChatApp
 from gui.apps.process_manager_visualizer_app import ProcessManagerVisualizerApp
+from gui.apps.chat_app import ChatApp
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -21,6 +22,7 @@ icon_start_path = os.path.join(BASEDIR, 'resources', 'start.png')
 wallpaper_path = os.path.join(BASEDIR, 'resources', 'wallpaper.png')
 icon_ai_path = os.path.join(BASEDIR, 'resources', 'gemini.png')
 icon_scheduler_vis_path = os.path.join(BASEDIR, 'resources', 'scheduler_vis.png')
+icon_chat_path = os.path.join(BASEDIR, 'resources', 'chat.png')
 
 class MainWindow:
     DESKTOP_ICON_SIZE = (48, 48)
@@ -44,6 +46,7 @@ class MainWindow:
             {'key': 'Memory', 'text': 'Memory', 'image_path': icon_memoryVis_path},
             {'key': 'AIChat', 'text': 'AI Chat', 'image_path': icon_ai_path},
             {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path},
+            {'key': 'ChatApp', 'text': 'Network Chat', 'image_path': icon_chat_path},
         ]
         self.clickable_icon_areas = {}
 
@@ -211,23 +214,6 @@ class MainWindow:
         else:
             return sg.Button(text, pad=(5,5), key=key)
 
-    def _show_start_menu(self):
-        layout = [
-            [sg.Text("Start Menu", font=("Arial", 14, "bold"))],
-            [self._safe_icon_button("File Explorer", icon_folder_path, "File Explorer")],
-            [self._safe_icon_button("Terminal", icon_terminal_path, "Terminal")],
-            [self._safe_icon_button("Game", icon_game_path, "Game")],
-            [self._safe_icon_button("Memory", icon_memoryVis_path, "Memory")],
-            [self._safe_icon_button("AI Chat", icon_ai_path, "AIChat")],
-            [sg.Button("Close", pad=(5,10))]
-        ]
-        window = sg.Window("Start Menu", layout, modal=True, finalize=True, keep_on_top=True)
-        event, _ = window.read()
-        window.close()
-        if event in ("File Explorer", "Terminal", "Game", "Memory", "AIChat"):
-            return event
-        return None
-
     def run(self):
         open_windows = {'Desktop': (self.window, self)}
         app_classes = {
@@ -236,25 +222,34 @@ class MainWindow:
             'Game': GameApp,
             'Memory': MemoryVisualizerApp,
             'AIChat': GeminiChatApp,
-            'SchedulerVisualizer': ProcessManagerVisualizerApp
+            'SchedulerVisualizer': ProcessManagerVisualizerApp,
+            'ChatApp': ChatApp 
         }
-        GAME_TICK_INTERVAL = 200 
+        APP_TICK_INTERVAL = 200
 
         while True:
-            window_that_had_event, event, values = sg.read_all_windows(timeout=GAME_TICK_INTERVAL)
+            window_that_had_event, event, values = sg.read_all_windows(timeout=APP_TICK_INTERVAL)
             self.update_clock()
 
             if event == sg.WIN_CLOSED and window_that_had_event == self.window:
+                for _key, (win_to_close, app_instance_to_close) in list(open_windows.items()):
+                    if _key != 'Desktop' and hasattr(app_instance_to_close, '_shutdown_client'):
+                        app_instance_to_close._shutdown_client()
+                    if hasattr(win_to_close, 'close'):
+                        try:
+                            win_to_close.close()
+                        except: pass
                 break 
+            
             if window_that_had_event is None and event != sg.TIMEOUT_EVENT: 
                  break
-
  
             if event == sg.TIMEOUT_EVENT:
                 if 'Game' in open_windows:
                     game_window, game_instance = open_windows['Game']
                     if game_window and hasattr(game_instance, 'handle_event'):
                         game_instance.handle_event("TIMER_TICK", None)
+                
 
             
             elif window_that_had_event is not None:
@@ -280,6 +275,7 @@ class MainWindow:
                             [sg.Button('Memory', size=(20,1), button_color=self.button_color, key='Memory')],
                             [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
                             [sg.Button('Scheduler Visualizer', size=(20,1), button_color=self.button_color, key='SchedulerVisualizer')], 
+                            [sg.Button('Network Chat', size=(20,1), button_color=self.button_color, key='ChatApp')],
                             [sg.HorizontalSeparator(color='#1976d2')],
                             [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
                         ]
@@ -305,13 +301,14 @@ class MainWindow:
                             grab_anywhere=False
                         )
                         
-                        menu_choice, _ = start_menu.read(timeout=10000)
+                        menu_choice, _ = start_menu.read(timeout=10000) 
                         start_menu.close()
                         
                         if menu_choice:
                             if menu_choice == 'Exit':
-                                return 
-                           
+                                event = sg.WIN_CLOSED 
+                                window_that_had_event = self.window
+                                break 
                             event = menu_choice 
 
                     elif event == '-DESKTOP_GRAPH-':
@@ -323,25 +320,33 @@ class MainWindow:
                                     event = icon_key 
                                     break
                     
-                    
                     if event in app_classes and event not in open_windows:
                         app_instance_new = app_classes[event]()
                         app_window_new = getattr(app_instance_new, 'window', None)
-                        if app_window_new is not None:
+                        if app_window_new is not None: 
                             open_windows[event] = (app_window_new, app_instance_new)
-                        else:
-                            print(f"Warning: App {event} window could not be created.")
                 
                 elif current_app_instance is not None: 
                     result = current_app_instance.handle_event(event, values)
-                    if result == 'close' or event == sg.WIN_CLOSED:
+                    if result == 'close' or (event == sg.WIN_CLOSED and window_that_had_event == current_win_ref):
+                        if hasattr(current_app_instance, '_shutdown_client'):
+                            current_app_instance._shutdown_client()
+                        
                         current_win_ref.close()
                         if current_app_key in open_windows:
                             del open_windows[current_app_key]
         
-       
-        for _key, (win_to_close, _app_instance_to_close) in open_windows.items():
-            try:
-                win_to_close.close()
-            except Exception as e:
-                print(f"Error closing window on exit: {e}")
+        print("MainWindow run loop finished. Cleaning up...")
+        for _key, (win_to_close, app_instance_to_close) in list(open_windows.items()):
+            if _key != 'Desktop' and hasattr(app_instance_to_close, '_shutdown_client'):
+                app_instance_to_close._shutdown_client()
+            if hasattr(win_to_close, 'close'):
+                try:
+                    win_to_close.close()
+                except Exception as e:
+                    print(f"Error closing window {_key} on exit: {e}")
+        print("Cleanup complete.")
+
+if __name__ == '__main__':
+    main_win = MainWindow()
+    main_win.run()
