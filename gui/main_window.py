@@ -234,78 +234,109 @@ class MainWindow:
             'Memory': MemoryVisualizerApp,
             'AIChat': GeminiChatApp
         }
+        GAME_TICK_INTERVAL = 200  
 
         while True:
-            window, event, values = sg.read_all_windows(timeout=500)
+            window_that_had_event, event, values = sg.read_all_windows(timeout=GAME_TICK_INTERVAL)
             self.update_clock()
 
-            if window is None:
-                continue
+            if event == sg.WIN_CLOSED and window_that_had_event == self.window:
+                break 
+            if window_that_had_event is None and event != sg.TIMEOUT_EVENT: 
+                 break
 
-            for key, (win, app_instance) in list(open_windows.items()):
-                if win == window:
-                    if key == 'Desktop':
-                        if event == sg.WIN_CLOSED:
-                            return
-                        if event == 'START':
-                            start_menu_layout = [
-                                [sg.Button('File Explorer', size=(20,1), button_color=self.button_color, key='File Explorer')],
-                                [sg.Button('Terminal', size=(20,1), button_color=self.button_color, key='Terminal')],
-                                [sg.Button('Game', size=(20,1), button_color=self.button_color, key='Game')],
-                                [sg.Button('Memory', size=(20,1), button_color=self.button_color, key='Memory')],
-                                [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
-                                [sg.HorizontalSeparator(color='#1976d2')],
-                                [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
-                            ]
-                            
-                            start_button_widget = self.window['START'].Widget
-                            start_menu_x = start_button_widget.winfo_rootx()
-                            taskbar_y_abs = self.window.CurrentLocation()[1] + self.desktop_graph_height
-                            
-                            num_items = len(start_menu_layout)
-                            button_height_approx = 30
-                            menu_height_approx = num_items * button_height_approx
+ 
+            if event == sg.TIMEOUT_EVENT:
+                if 'Game' in open_windows:
+                    game_window, game_instance = open_windows['Game']
+                    if game_window and hasattr(game_instance, 'handle_event'):
+                        game_instance.handle_event("TIMER_TICK", None)
+            
 
-                            start_menu_y = taskbar_y_abs - menu_height_approx 
+            elif window_that_had_event is not None:
+                current_app_key = None
+                current_app_instance = None
+                current_win_ref = None
 
-                            start_menu = sg.Window(
-                                'Start Menu', 
-                                start_menu_layout, 
-                                location=(start_menu_x, start_menu_y),
-                                no_titlebar=True, 
-                                keep_on_top=True, 
-                                finalize=True, 
-                                background_color=self.start_menu_bg,
-                                grab_anywhere=False
-                            )
-                            
-                            menu_choice, _ = start_menu.read()
-                            start_menu.close()
-                            
-                            if menu_choice:
-                                if menu_choice == 'Exit':
-                                    return
-                                if menu_choice in app_classes and menu_choice not in open_windows:
-                                    app_instance = app_classes[menu_choice]()
-                                    app_window = getattr(app_instance, 'window', None)
-                                    if app_window is not None:
-                                        open_windows[menu_choice] = (app_window, app_instance)
-                        if event == '-DESKTOP_GRAPH-':
-                            click_coords = values['-DESKTOP_GRAPH-']
-                            if click_coords:
-                                cx, cy = click_coords
-                                for icon_key, (x1, y1, x2, y2) in self.clickable_icon_areas.items():
-                                    if x1 <= cx <= x2 and y1 <= cy <= y2:
-                                        event = icon_key
-                                        break
-                        if event in app_classes and event not in open_windows:
-                            app_instance = app_classes[event]()
-                            app_window = getattr(app_instance, 'window', None)
-                            if app_window is not None:
-                                open_windows[event] = (app_window, app_instance)
-                    else:
-                        result = app_instance.handle_event(event, values)
-                        if result == 'close':
-                            win.close()
-                            del open_windows[key]
-                    break
+                for key_iter, (win_iter, app_instance_iter) in open_windows.items():
+                    if win_iter == window_that_had_event:
+                        current_app_key = key_iter
+                        current_app_instance = app_instance_iter
+                        current_win_ref = win_iter
+                        break
+                
+                if current_app_key == 'Desktop':
+                    if event == sg.WIN_CLOSED:
+                        return 
+                    if event == 'START':
+                        start_menu_layout = [
+                            [sg.Button('File Explorer', size=(20,1), button_color=self.button_color, key='File Explorer')],
+                            [sg.Button('Terminal', size=(20,1), button_color=self.button_color, key='Terminal')],
+                            [sg.Button('Game', size=(20,1), button_color=self.button_color, key='Game')],
+                            [sg.Button('Memory', size=(20,1), button_color=self.button_color, key='Memory')],
+                            [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
+                            [sg.HorizontalSeparator(color='#1976d2')],
+                            [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
+                        ]
+                        
+                        start_button_widget = self.window['START'].Widget
+                        start_menu_x = start_button_widget.winfo_rootx()
+                        taskbar_y_abs = self.window.CurrentLocation()[1] + self.desktop_graph_height
+                        
+                        num_items = len(start_menu_layout)
+                        button_height_approx = 30 
+                        menu_height_approx = num_items * button_height_approx
+
+                        start_menu_y = taskbar_y_abs - menu_height_approx 
+
+                        start_menu = sg.Window(
+                            'Start Menu', 
+                            start_menu_layout, 
+                            location=(start_menu_x, start_menu_y),
+                            no_titlebar=True, 
+                            keep_on_top=True, 
+                            finalize=True, 
+                            background_color=self.start_menu_bg,
+                            grab_anywhere=False
+                        )
+                        
+                        menu_choice, _ = start_menu.read(timeout=10000)
+                        start_menu.close()
+                        
+                        if menu_choice:
+                            if menu_choice == 'Exit':
+                                return 
+                           
+                            event = menu_choice 
+
+                    elif event == '-DESKTOP_GRAPH-':
+                        click_coords = values['-DESKTOP_GRAPH-']
+                        if click_coords:
+                            cx, cy = click_coords
+                            for icon_key, (x1, y1, x2, y2) in self.clickable_icon_areas.items():
+                                if x1 <= cx <= x2 and y1 <= cy <= y2:
+                                    event = icon_key 
+                                    break
+                    
+                    
+                    if event in app_classes and event not in open_windows:
+                        app_instance_new = app_classes[event]()
+                        app_window_new = getattr(app_instance_new, 'window', None)
+                        if app_window_new is not None:
+                            open_windows[event] = (app_window_new, app_instance_new)
+                        else:
+                            print(f"Warning: App {event} window could not be created.")
+                
+                elif current_app_instance is not None: 
+                    result = current_app_instance.handle_event(event, values)
+                    if result == 'close' or event == sg.WIN_CLOSED:
+                        current_win_ref.close()
+                        if current_app_key in open_windows:
+                            del open_windows[current_app_key]
+        
+       
+        for _key, (win_to_close, _app_instance_to_close) in open_windows.items():
+            try:
+                win_to_close.close()
+            except Exception as e:
+                print(f"Error closing window on exit: {e}")
