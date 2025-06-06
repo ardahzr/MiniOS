@@ -5,6 +5,7 @@ import time
 CELL_SIZE = 20
 GRID_SIZE = 20
 SPEED = 100
+LIVES = 3
 
 class SnakeGame:
     def __init__(self):
@@ -15,6 +16,7 @@ class SnakeGame:
         self.direction = (0, -1)
         self.spawn_food()
         self.game_over = False
+        self.lives = LIVES
 
     def spawn_food(self):
         while True:
@@ -28,8 +30,15 @@ class SnakeGame:
         head = (self.snake[0][0] + self.direction[0], self.snake[0][1] + self.direction[1])
         # Check wall collision
         if not (0 <= head[0] < GRID_SIZE and 0 <= head[1] < GRID_SIZE) or head in self.snake:
-            self.game_over = True
-            return
+            self.lives -= 1
+            if self.lives <= 0:
+                self.game_over = True
+                return
+            else:
+                self.snake = [(GRID_SIZE // 2, GRID_SIZE // 2 + j) for i, j in self.snake[:max(1, len(self.snake) // 2)]]  # Reset snake position
+                self.direction = (0, -1)  # Reset direction
+                self.spawn_food()
+                return
         self.snake.insert(0, head)
         if head == self.food:
             self.spawn_food()
@@ -43,6 +52,10 @@ class SnakeGame:
 
     def draw(self, canvas):
         canvas.TKCanvas.delete("all")
+        
+        # Draw grid lines
+        self._draw_grid(canvas)
+        
         # Draw snake
         for x, y in self.snake:
             canvas.TKCanvas.create_rectangle(
@@ -57,6 +70,23 @@ class SnakeGame:
             (fx + 1) * CELL_SIZE, (fy + 1) * CELL_SIZE,
             fill="red"
         )
+    
+    def _draw_grid(self, canvas):
+        # Draw vertical lines
+        for i in range(GRID_SIZE + 1):
+            x = i * CELL_SIZE
+            canvas.TKCanvas.create_line(
+                x, 0, x, GRID_SIZE * CELL_SIZE,
+                fill="lightgray", width=1
+            )
+        
+        # Draw horizontal lines
+        for i in range(GRID_SIZE + 1):
+            y = i * CELL_SIZE
+            canvas.TKCanvas.create_line(
+                0, y, GRID_SIZE * CELL_SIZE, y,
+                fill="lightgray", width=1
+            )
 
 class GameApp:
     def __init__(self):
