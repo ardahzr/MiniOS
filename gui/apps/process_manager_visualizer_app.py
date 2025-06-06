@@ -13,8 +13,6 @@ class ProcessManagerVisualizerApp:
         self.time_slice_elapsed = 0
         self.simulation_time = 0
 
-        sg.theme('DarkBlue')
-
         scheduler_selection_layout = [
             sg.Radio("FIFO", "SCHEDULER", key="-FIFO-", default=True, enable_events=True),
             sg.Radio("Round Robin", "SCHEDULER", key="-RR-", enable_events=True),

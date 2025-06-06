@@ -35,7 +35,7 @@ class SnakeGame:
                 self.game_over = True
                 return
             else:
-                self.snake = [(GRID_SIZE // 2, GRID_SIZE // 2 + j) for i, j in self.snake[:max(1, len(self.snake) // 2)]]  # Reset snake position
+                self.snake = [(GRID_SIZE // 2, GRID_SIZE // 2 + i) for i in range(len(self.snake) // 2)]  # Reset snake position
                 self.direction = (0, -1)  # Reset direction
                 self.spawn_food()
                 return
