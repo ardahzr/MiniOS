@@ -4,12 +4,13 @@ from os_core.process import PCB
 
 class MemoryVisualizerApp:
     def _show_settings_dialog(self):
-        default_settings = {'page_size': 4096, 'num_frames': 32, 'num_disk_frames': 64}
+        default_settings = {'page_size': 4096, 'num_frames': 32, 'num_disk_frames': 64, 'swapping_algorithm': 'clockhand'}
         layout = [
             [sg.Text("Initial Simulation Settings", font=("Helvetica", 14))],
             [sg.Text("Page Size (bytes):"), sg.Input(default_settings['page_size'], size=(10, 1), key='-PAGE_SIZE-')],
             [sg.Text("Memory Frames:"), sg.Input(default_settings['num_frames'], size=(10, 1), key='-NUM_FRAMES-')],
             [sg.Text("Disk Blocks:"), sg.Input(default_settings['num_disk_frames'], size=(10, 1), key='-NUM_DISK_FRAMES-')],
+            [sg.Text("Swapping Algorithm:"), sg.Combo(['clockhand', 'clockhand+'], default_value=default_settings['swapping_algorithm'], size=(15, 1), key='-SWAPPING_ALGO-', readonly=True)],
             [sg.Button("Apply Settings"), sg.Button("Reset Defaults"), sg.Button("Close Settings")]
         ]
         window = sg.Window("Configure Simulation", layout, modal=True, finalize=True)
@@ -25,15 +26,17 @@ class MemoryVisualizerApp:
                 window['-PAGE_SIZE-'].update(default_settings['page_size'])
                 window['-NUM_FRAMES-'].update(default_settings['num_frames'])
                 window['-NUM_DISK_FRAMES-'].update(default_settings['num_disk_frames'])
+                window['-SWAPPING_ALGO-'].update(default_settings['swapping_algorithm'])
             elif event == "Apply Settings":
                 try:
                     ps = int(values['-PAGE_SIZE-'])
                     nf = int(values['-NUM_FRAMES-'])
                     ndf = int(values['-NUM_DISK_FRAMES-'])
+                    algo = values['-SWAPPING_ALGO-']
                     if ps <= 0 or nf <= 0 or ndf < 0: 
                         sg.popup_error("Page Size and Memory Frames must be positive. Disk Blocks must be non-negative.", title="Input Error")
                         continue
-                    parsed_settings = {'page_size': ps, 'num_frames': nf, 'num_disk_frames': ndf}
+                    parsed_settings = {'page_size': ps, 'num_frames': nf, 'num_disk_frames': ndf, 'swapping_algorithm': algo}
                     break 
                 except ValueError:
                     sg.popup_error("Please enter valid numbers for all settings.", title="Input Error")
@@ -74,7 +77,8 @@ class MemoryVisualizerApp:
 
         self.mm = MemoryManager(page_size=initial_settings['page_size'],
                                 num_frames=initial_settings['num_frames'],
-                                num_disk_frames=initial_settings['num_disk_frames'])
+                                num_disk_frames=initial_settings['num_disk_frames'],
+                                swapping_algorithm=initial_settings['swapping_algorithm'])
         self.simulated_processes = {}
 
         self.items_per_row = 8

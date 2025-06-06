@@ -7,10 +7,11 @@ class PageTableEntry:
         self.use_bit = False
 
 class MemoryManager:
-    def __init__(self, page_size, num_frames, num_disk_frames): # MODIFIED
+    def __init__(self, page_size, num_frames, num_disk_frames, swapping_algorithm='clockhand'): # MODIFIED
         self.page_size = int(page_size) 
         self.num_frames = int(num_frames) 
         self.num_disk_frames = int(num_disk_frames)
+        self.swapping_algorithm = swapping_algorithm  # 'clockhand' or 'clockhand+'
         
         # frame_table[frame_idx] = {'pid': pid, 'vpage': virtual_page_num} or None if free
         self.frame_table = [None] * self.num_frames
@@ -38,9 +39,9 @@ class MemoryManager:
         # Ensure enough free frames before allocation
         needed = pcb.num_pages_required - len(self.free_frames)
         while needed > 0:
-            victim_pcb, victim_vpage = self.clockHand()
+            victim_pcb, victim_vpage = self._select_victim()
             if victim_pcb is None:
-                print(f"Error: clockHand failed to select a victim. Cannot make space for PID {pcb.pid}.")
+                print(f"Error: victim selection failed to select a victim. Cannot make space for PID {pcb.pid}.")
                 return False
             if not self.free_disk_blocks:
                 print(f"Error: No disk space to swap out victim (PID {victim_pcb.pid}, VPage {victim_vpage}). Cannot make space for PID {pcb.pid}.")
@@ -126,9 +127,9 @@ class MemoryManager:
 
             if len(self.free_frames) == 0: # RAM is full, need to swap OUT a victim
                 print(f"RAM full. Selecting victim to swap out for PID {pcb.pid}, VPage {virtual_page_number}.")
-                victim_pcb, victim_vpage = self.clockHand()
-                if victim_pcb is None: # Should not happen if RAM is full and clockHand works
-                    print("Error: clockHand failed to select a victim when RAM is full.")
+                victim_pcb, victim_vpage = self._select_victim()
+                if victim_pcb is None: # Should not happen if RAM is full and victim selection works
+                    print("Error: victim selection failed to select a victim when RAM is full.")
                     return False
 
                 if not self.free_disk_blocks:
@@ -183,9 +184,9 @@ class MemoryManager:
 
             if len(self.free_frames) == 0: # RAM is full, need to swap OUT a victim
                 print(f"RAM full. Selecting victim to swap out for true fault of PID {pcb.pid}, VPage {virtual_page_number}.")
-                victim_pcb, victim_vpage = self.clockHand()
+                victim_pcb, victim_vpage = self._select_victim()
                 if victim_pcb is None:
-                    print("Error: clockHand failed to select a victim when RAM is full for a true fault.")
+                    print("Error: victim selection failed to select a victim when RAM is full for a true fault.")
                     return False
 
                 if not self.free_disk_blocks:
@@ -266,6 +267,77 @@ class MemoryManager:
                 cycles += 1
                 if cycles == 2:
                     print("ClockHand: Cycled through all frames twice, no suitable victim found.")
+                    return None, None
+
+    def _select_victim(self):
+        """Selects a victim page based on the configured swapping algorithm."""
+        print(f"Selecting victim using swapping algorithm: {self.swapping_algorithm}")
+        if self.swapping_algorithm == 'clockhand':
+            return self.clockHand()
+        elif self.swapping_algorithm == 'clockhand+':
+            return self.clockHandPlus()
+        else:
+            print(f"Error: Unknown swapping algorithm '{self.swapping_algorithm}'. Falling back to clockhand.")
+            return self.clockHand()
+
+    def clockHandPlus(self):
+        """
+        Clock Hand+ algorithm: Selects the nth page with use_bit = 0,
+        where n scales with the number of pages in memory.
+        """
+        if self.clockPointer is None:
+            self.clockPointer = 0
+        
+        # Calculate n based on the number of occupied frames
+        occupied_frames = sum(1 for frame in self.frame_table if frame is not None)
+        n = max(1, occupied_frames // 4)  # n scales with occupied frames
+
+        print(f"ClockHandPlus: Using n = {n} for selection based on occupied frames ({occupied_frames}).")
+        
+        hand = self.clockPointer
+        start_hand = hand
+        cycles = 0
+        zero_use_bit_count = 0
+        
+        while True:
+            current_frame_content = self.frame_table[hand]
+            if current_frame_content is None:
+                pass  # skip
+            else:
+                pid_in_frame = current_frame_content["pid"]
+                vpage_in_frame = current_frame_content["vpage"]
+                pcb = self.pid_to_pcb_map.get(pid_in_frame)
+                if pcb is None:
+                    print(f"ClockHandPlus Warning: Inconsistent state! PID {pid_in_frame} in frame_table (frame {hand}) but not in pid_to_pcb_map. Clearing frame.")
+                    self.frame_table[hand] = None
+                    if hand not in self.free_frames:
+                        self.free_frames.append(hand)
+                        self.free_frames.sort()
+                else:
+                    pte = pcb.page_table.get(vpage_in_frame)
+                    if pte is None:
+                        print(f"ClockHandPlus Warning: Inconsistent state! VPage {vpage_in_frame} for PID {pid_in_frame} (frame {hand}) not in its page_table. Clearing frame.")
+                        self.frame_table[hand] = None
+                        if hand not in self.free_frames:
+                            self.free_frames.append(hand)
+                            self.free_frames.sort()
+                    else:
+                        if not pte.use_bit:
+                            zero_use_bit_count += 1
+                            if zero_use_bit_count >= n:
+                                self.clockPointer = (hand + 1) % self.num_frames
+                                print(f"ClockHandPlus: Selected {n}th page with use_bit=0 (PID {pcb.pid}, VPage {vpage_in_frame})")
+                                return pcb, vpage_in_frame
+                        else:
+                            pte.use_bit = False
+            
+            # Always advance hand
+            hand = (hand + 1) % self.num_frames
+            self.clockPointer = hand
+            if hand == start_hand:
+                cycles += 1
+                if cycles == 2:
+                    print("ClockHandPlus: Cycled through all frames twice, no suitable victim found.")
                     return None, None
 
     def get_memory_map(self):
