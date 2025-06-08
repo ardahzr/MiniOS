@@ -28,6 +28,12 @@ class ThreadAPI:
             if thread.is_alive():
                 thread.join()
 
+class ThreadInfo:
+    def __init__(self, name, state='Ready', progress=0.0):
+        self.name = name
+        self.state = state
+        self.progress = progress
+
 # class ReadersWritersLock:
 #     """Readers-Writers lock implementation"""
     
@@ -107,11 +113,15 @@ class ProducerConsumerSimulation:
         return None
 
     def producer(self, producer_id: int, items: List[Any], delay: float = 0.1):
-        """Enhanced producer with real-time monitoring"""
-        for item in items:
+        thread_name = threading.current_thread().name
+        # Set state to Running
+        with self.thread_api.lock:
+            if thread_name in self.thread_api.thread_states:
+                self.thread_api.thread_states[thread_name].state = 'Running'
+        total = len(items)
+        for idx, item in enumerate(items):
             if not self.running:
                 break
-                
             # Acquire semaphore (wait for empty slot)
             self.empty.acquire()
             
@@ -129,11 +139,24 @@ class ProducerConsumerSimulation:
             # Release semaphore (signal filled slot)
             self.full.release()
             
+            # Update progress
+            with self.thread_api.lock:
+                if thread_name in self.thread_api.thread_states:
+                    self.thread_api.thread_states[thread_name].progress = ((idx+1)/total)*100
             # Simulate production time
             time.sleep(delay + random.uniform(0, 0.05))
+        # Set state to Finished
+        with self.thread_api.lock:
+            if thread_name in self.thread_api.thread_states:
+                self.thread_api.thread_states[thread_name].state = 'Finished'
+                self.thread_api.thread_states[thread_name].progress = 100.0
 
     def consumer(self, consumer_id: int, count: int, delay: float = 0.15):
-        """Enhanced consumer with real-time monitoring"""
+        thread_name = threading.current_thread().name
+        # Set state to Running
+        with self.thread_api.lock:
+            if thread_name in self.thread_api.thread_states:
+                self.thread_api.thread_states[thread_name].state = 'Running'
         consumed = 0
         while consumed < count and self.running:
             # Acquire semaphore (wait for filled slot)
@@ -156,51 +179,76 @@ class ProducerConsumerSimulation:
             # Release semaphore (signal empty slot)
             self.empty.release()
             
+            # Update progress
+            with self.thread_api.lock:
+                if thread_name in self.thread_api.thread_states:
+                    self.thread_api.thread_states[thread_name].progress = ((consumed)/count)*100
             # Simulate consumption time
-            time.sleep(delay + random.uniform(0, 0.05))
-
+            time.sleep(delay + random.uniform(0, 0.05))        # Set state to Finished
+        with self.thread_api.lock:
+            if thread_name in self.thread_api.thread_states:
+                self.thread_api.thread_states[thread_name].state = 'Finished'
+                self.thread_api.thread_states[thread_name].progress = 100.0
+    
     def start_simulation(self, num_producers: int = 2, num_consumers: int = 2, 
                         items_per_producer: int = 5, items_per_consumer: int = 5,
                         producer_delay: float = 1, consumer_delay: float = 1.5):
         """Start multi-threaded producer-consumer simulation"""
         self.running = True
+        self._log(f"Starting simulation with {num_producers} producers and {num_consumers} consumers")
+        self._log(f"Buffer size: {self.buffer_size}")
+        self._log("-" * 60)
         
-        self._log(f"Starting simulation with {num_producers} producers and {num_consumers} consumers") # Changed print to self._log
-        self._log(f"Buffer size: {self.buffer_size}") # Changed print to self._log
-        self._log("-" * 60) # Changed print to self._log
+        # Clear any existing thread states
+        with self.thread_api.lock:
+            self.thread_api.thread_states.clear()
+            self.thread_api.threads.clear()
         
         # Create producer threads
         for i in range(num_producers):
             items = list(range(1, items_per_producer + 1))
+            thread_name = f"Producer-{i+1}"
             thread = self.thread_api.create_thread(
                 target=self.producer, 
                 args=(i + 1, items, producer_delay + i * 0.05),
-                name=f"Producer-{i+1}"
+                name=thread_name
             )
+            # Add ThreadInfo for visualization
+            with self.thread_api.lock:
+                self.thread_api.thread_states[thread_name] = ThreadInfo(name=thread_name, state='Ready', progress=0.0)
         
         # Create consumer threads
         for i in range(num_consumers):
+            thread_name = f"Consumer-{i+1}"
             thread = self.thread_api.create_thread(
                 target=self.consumer, 
                 args=(i + 1, items_per_consumer, consumer_delay + i * 0.05),
-                name=f"Consumer-{i+1}"
+                name=thread_name
             )
+            # Add ThreadInfo for visualization
+            with self.thread_api.lock:
+                self.thread_api.thread_states[thread_name] = ThreadInfo(name=thread_name, state='Ready', progress=0.0)
         
         # Start all threads
         for thread in self.thread_api.threads:
             self.thread_api.start_thread(thread)
-
-        # Wait for all threads to complete
+    
+    def wait_for_completion(self):
+        """Wait for all simulation threads to complete"""
         self.thread_api.join_all()
-        
         self.running = False
-        
-        self._log("-" * 60) # Changed print to self._log
-        self._log("Simulation complete!") # Changed print to self._log
-        self._log(f"Total produced: {self.produced_count}") # Changed print to self._log
-        self._log(f"Total consumed: {self.consumed_count}") # Changed print to self._log
-        self._log(f"Final buffer size: {len(self.buffer)}") # Changed print to self._log
-        self._log(f"Remaining items: {list(self.buffer)}") # Changed print to self._log
+        self._log("-" * 60)
+        self._log("Simulation complete!")
+        self._log(f"Total produced: {self.produced_count}")
+        self._log(f"Total consumed: {self.consumed_count}")
+        self._log(f"Final buffer size: {len(self.buffer)}")
+        self._log(f"Remaining items: {list(self.buffer)}")
+    
+    def is_simulation_complete(self) -> bool:
+        """Check if all simulation threads have completed"""
+        if not self.thread_api.threads:
+            return False
+        return all(not thread.is_alive() for thread in self.thread_api.threads)
 
     def get_stats(self) -> dict:
         """Get current simulation statistics"""

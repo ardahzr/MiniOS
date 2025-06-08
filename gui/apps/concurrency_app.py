@@ -3,7 +3,7 @@ import threading
 import time
 import random
 from typing import List, Dict, Any
-import queue
+# import queue # Not strictly needed if only using list for buffer_list_for_draw
 from os_core.concurrency import ProducerConsumerSimulation, ThreadAPI
 
 class ConcurrencyApp:
@@ -12,10 +12,12 @@ class ConcurrencyApp:
     def __init__(self):
         self.window = None
         self.simulation = None
-        self.thread_api = ThreadAPI()
+        self.thread_api = ThreadAPI() # This seems to be for app-level threads, not simulation threads
         self.running = False
         self.log_messages = []
         self.max_log_messages = 50
+        self.update_thread = None # Initialize update_thread
+        self.sim_thread = None    # Initialize sim_thread (optional, but good for consistency)
         
         # Simulation parameters
         self.num_producers = 2
@@ -25,8 +27,7 @@ class ConcurrencyApp:
         self.items_per_consumer = 8
         self.producer_delay = 0.5
         self.consumer_delay = 0.7
-        
-        # GUI colors
+          # GUI colors
         self.producer_color = '#4CAF50'  # Green
         self.consumer_color = '#2196F3'  # Blue
         self.buffer_color = '#FF9800'    # Orange
@@ -34,13 +35,69 @@ class ConcurrencyApp:
         
         # Create the window immediately
         self.window = self.create_window()
+
+    def log_message(self, message: str):
+        """Thread-safe message logging that can be called from any thread."""
+        timestamp = time.strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {message}"
         
+        # Always add to log messages (thread-safe)
+        self.log_messages.append(log_entry)
+        if len(self.log_messages) > self.max_log_messages:
+            self.log_messages.pop(0)
+        
+        # For console fallback and worker threads
+        print(log_entry)
+        
+        # Only try to update GUI if we're in the main thread
+        if threading.current_thread() is threading.main_thread():
+            try:
+                if (self.window and hasattr(self.window, 'TKroot') and 
+                    self.window.TKroot and self.window.TKroot.winfo_exists()):
+                    # Additional safety check
+                    if (self.window.key_dict and '-LOG-' in self.window.key_dict and 
+                        self.window['-LOG-'].Widget):
+                        log_text = '\n'.join(self.log_messages)
+                        self.window['-LOG-'].update(log_text)
+            except (sg.tk.TclError, AttributeError, RuntimeError) as e:
+                # Silently handle GUI errors - message is already printed to console
+                pass
+            except Exception as e:
+                print(f"Unexpected error updating log GUI: {type(e).__name__}: {e}")
+
+    def update_log_display(self):
+        """Safely update the log display from monitoring thread"""
+        try:
+            if (self.window and hasattr(self.window, 'TKroot') and 
+                self.window.TKroot and self.window.TKroot.winfo_exists()):
+                # Additional safety check for the log element
+                if (self.window.key_dict and '-LOG-' in self.window.key_dict and 
+                    self.window['-LOG-'].Widget):
+                    log_text = '\n'.join(self.log_messages)
+                    self.window['-LOG-'].update(log_text)
+        except (sg.tk.TclError, AttributeError, RuntimeError) as e:
+            # Silently handle GUI errors - message is already printed to console
+            pass
+        except Exception as e:
+            print(f"Unexpected error updating log display: {type(e).__name__}: {e}")
+
+    def safe_log_message(self, message: str):
+        """Alternative logging method that only logs to console - safe for worker threads."""
+        timestamp = time.strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {message}"
+        print(log_entry)
+        
+        # Still add to messages list for later GUI update
+        self.log_messages.append(log_entry)
+        if len(self.log_messages) > self.max_log_messages:
+            self.log_messages.pop(0)
+
     def create_layout(self):
         """Create the GUI layout"""
         
         # Control panel
         control_frame = [
-            [sg.Text('Concurrency & Synchronization Simulator', font=('Arial', 16, 'bold'))],
+            [sg.Text('Concurrency & Synchronization Simulator', font=('Arial', 16, 'bold'), justification='center', expand_x=True)],
             [sg.HSeparator()],
             [sg.Text('Simulation Parameters:')],
             [
@@ -63,11 +120,11 @@ class ConcurrencyApp:
                 sg.Text('Consumer Delay (s):'), 
                 sg.Input(str(self.consumer_delay), size=(5,1), key='-CONS_DELAY-')
             ],
-            [
+            [sg.Column([ [
                 sg.Button('Start Simulation', key='-START-', button_color=('white', self.producer_color)),
                 sg.Button('Stop Simulation', key='-STOP-', button_color=('white', '#f44336'), disabled=True),
                 sg.Button('Reset', key='-RESET-', button_color=('white', '#9E9E9E'))
-            ]
+            ]], justification='center', expand_x=True)]
         ]
         
         # Buffer visualization
@@ -114,14 +171,14 @@ class ConcurrencyApp:
         
         # Main layout
         left_column = [
-            [sg.Frame('Control Panel', control_frame, expand_x=True)],
-            [sg.Frame('Statistics', stats_frame, expand_x=True)],
-            [sg.Frame('Buffer State', buffer_frame, expand_x=True)],
-            [sg.Frame('Thread Activity', thread_frame, expand_x=True)]
+            [sg.Frame('Control Panel', control_frame, expand_x=True, element_justification='center')],
+            [sg.Frame('Statistics', stats_frame, expand_x=True, element_justification='center')],
+            [sg.Frame('Buffer State', buffer_frame, expand_x=True, element_justification='center')],
+            [sg.Frame('Thread Activity', thread_frame, expand_x=True, element_justification='center')]
         ]
         
         right_column = [
-            [sg.Frame('Activity Log', log_frame, expand_x=True, expand_y=True)]
+            [sg.Frame('Activity Log', log_frame, expand_x=True, expand_y=True, element_justification='center')]
         ]
         
         layout = [
@@ -201,177 +258,141 @@ class ConcurrencyApp:
             graph.draw_rectangle((x1, y1), (x2, y2), fill_color=color, line_color='black')
             graph.draw_text(text, (x1 + slot_width//2, y1 + slot_height//2), font=('Arial', 10), color='black')
     
-    def draw_thread_visualization(self, thread_states):
-        """Draw thread activity visualization"""
-        if not self.window:
+    def draw_thread_visualization(self):
+        if not self.running or not self.window or not self.simulation or not self.simulation.thread_api:
             return
-            
-        graph = self.window['-THREAD_GRAPH-']
-        graph.erase()
-        
-        if not thread_states:
-            graph.draw_text("No thread activity", (300, 100), font=('Arial', 12), color='gray')
-            return
-        
-        # Separate producers and consumers
-        producers = [(name, status, progress) for name, status, progress in thread_states if 'Producer' in name]
-        consumers = [(name, status, progress) for name, status, progress in thread_states if 'Consumer' in name]
-        
-        # Box dimensions and layout
-        box_width = 80
-        box_height = 40
-        box_margin = 10
-        row_spacing = 60
-        start_x = 110 # Adjusted from 50 to 65 to provide more left margin
-        start_y = 50
-        
-        # Draw producers row
-        if producers:
-            # Row label
-            graph.draw_text("Producers:", (start_x - 40, start_y + box_height//2), 
-                          font=('Arial', 10, 'bold'), color='black')
-            
-            for i, (name, status, progress) in enumerate(producers):
-                x_pos = start_x + i * (box_width + box_margin)
-                
-                # Determine color based on status - green for producers
-                if status.lower() == 'running':
-                    color = self.producer_color  # Green for running producers
-                else:
-                    color = self.empty_color     # Light gray for waiting/finished producers
-                
-                # Draw box
-                graph.draw_rectangle((x_pos, start_y), (x_pos + box_width, start_y + box_height), 
-                                   fill_color=color, line_color='black')
-                
-                # Draw progress bar (optional)
-                if status.lower() == 'running' and progress > 0:
-                    progress_width = int(box_width * progress)
-                    graph.draw_rectangle((x_pos, start_y), (x_pos + progress_width, start_y + box_height),
-                                       fill_color='#A5D6A7', line_color=None) # Lighter green for progress
 
-                # Draw producer number
-                producer_num = name.split('-')[-1] if '-' in name else str(i)
-                graph.draw_text(f"P{producer_num}", (x_pos + box_width//2, start_y + box_height//2), 
-                              font=('Arial', 12, 'bold'), color='white' if status.lower() == 'running' else 'black')
-        
-        # Draw consumers row
-        if consumers:
-            consumer_y = start_y + row_spacing
+        try:
+            # Ensure window and graph element are valid before proceeding
+            if not self.window or not self.window.TKroot or not self.window.TKroot.winfo_exists():
+                return
             
-            # Row label
-            graph.draw_text("Consumers:", (start_x - 40, consumer_y + box_height//2), 
-                          font=('Arial', 10, 'bold'), color='black')
-            
-            for i, (name, status, progress) in enumerate(consumers):
-                x_pos = start_x + i * (box_width + box_margin)
+            graph = self.window['-THREAD_GRAPH-'] 
+            if not graph or not graph.TKCanvas:
+                return
+
+            graph.erase()
+            threads_data = []
+            if self.simulation and self.simulation.thread_api:
+                with self.simulation.thread_api.lock: # Ensure thread-safe access
+                    # Use .thread_states.values() to get ThreadInfo objects
+                    threads_data = list(self.simulation.thread_api.thread_states.values())
+
+            graph_width, graph_height = graph.CanvasSize 
+            bar_height = 20
+            bar_margin = 5
+            start_x = 10
+            start_y = 10 # Top padding for the first bar
+
+            if not threads_data:
+                graph.draw_text("No threads to visualize.", (graph_width / 2, graph_height / 2), font=("Helvetica", 10))
+                return
+
+            drawable_graph_width = graph_width - 2 * start_x # Usable width for bars
+
+            for i, thread_info in enumerate(threads_data):
+                y_pos = start_y + i * (bar_height + bar_margin)
+                if y_pos + bar_height > graph_height: # Avoid drawing outside canvas
+                    break 
                 
-                # Determine color based on status - blue for consumers
-                if status.lower() == 'running':
-                    color = self.consumer_color  # Blue for running consumers
-                else:
-                    color = self.empty_color     # Light gray for waiting/finished consumers
+                progress_value = 0.0
+                if hasattr(thread_info, 'progress') and thread_info.progress is not None:
+                    try:
+                        progress_value = float(thread_info.progress)
+                    except ValueError:
+                        progress_value = 0.0 
                 
-                # Draw box
-                graph.draw_rectangle((x_pos, consumer_y), (x_pos + box_width, consumer_y + box_height), 
+                progress_value = max(0.0, min(100.0, progress_value))
+
+                bar_width_pixels = 0
+                if thread_info.state == "Running":
+                    bar_width_pixels = int(drawable_graph_width * (progress_value / 100.0))
+                elif thread_info.state == "Finished":
+                    bar_width_pixels = drawable_graph_width # Full bar for finished
+
+                color = self.empty_color
+                if thread_info.state == "Running":
+                    color = self.producer_color if "Producer" in thread_info.name else self.consumer_color
+                elif thread_info.state == "Finished":
+                     color = '#BDBDBD' # Grey for finished
+                
+                graph.draw_rectangle((start_x, y_pos), (start_x + bar_width_pixels, y_pos + bar_height), 
                                    fill_color=color, line_color='black')
 
-                # Draw progress bar (optional)
-                if status.lower() == 'running' and progress > 0:
-                    progress_width = int(box_width * progress)
-                    graph.draw_rectangle((x_pos, consumer_y), (x_pos + progress_width, consumer_y + box_height),
-                                       fill_color='#90CAF9', line_color=None) # Lighter blue for progress
-                
-                # Draw consumer number
-                consumer_num = name.split('-')[-1] if '-' in name else str(i)
-                graph.draw_text(f"C{consumer_num}", (x_pos + box_width//2, consumer_y + box_height//2), 
-                              font=('Arial', 12, 'bold'), color='white' if status.lower() == 'running' else 'black')
-    
-    def log_message(self, message):
-        """Add a message to the activity log"""
-        timestamp = time.strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}"
-        
-        self.log_messages.append(log_entry)
-        if len(self.log_messages) > self.max_log_messages:
-            self.log_messages.pop(0)
-        
-        if self.window:
-            log_text = '\n'.join(self.log_messages)
-            self.window['-LOG-'].update(log_text)
-    
+                text_x_pos = start_x + 5 
+                label_y_pos = y_pos + bar_height / 2
+                graph.draw_text(f"{thread_info.name} ({thread_info.state} {int(progress_value)}%)", 
+                                (text_x_pos, label_y_pos), font=("Helvetica", 8), text_location=sg.TEXT_LOCATION_LEFT)
+
+        except (TypeError, AttributeError, sg.tk.TclError, RuntimeError) as e:
+            err_msg = str(e).lower()
+            if "window was closed" in err_msg or \
+               "application has been destroyed" in err_msg or \
+               "invalid command name" in err_msg or \
+               (hasattr(self, 'window') and self.window and (not hasattr(self.window, 'TKroot') or not self.window.TKroot)):
+                return 
+            else:
+                self.log_message(f"Draw_thread_visualization: Unexpected GUI error: {type(e).__name__}: {e}")
+        except Exception as e:
+            self.log_message(f"Draw_thread_visualization: Generic error: {type(e).__name__}: {e}")
+
     def update_statistics(self):
-        """Update the statistics display"""
-        if not self.window:
+        if not self.running or not self.window or not self.simulation:
             return
 
-        # Prepare default values
+        # Initialize default values for GUI update
         produced_val = '0'
         consumed_val = '0'
         buffer_str = '0/0'
         active_threads_val = '0'
         buffer_list_for_draw = []
 
-        if self.simulation and hasattr(self.simulation, 'get_stats'):
-            try:
-                stats = self.simulation.get_stats() # This call should be safe
-                produced_val = str(stats['produced'])
-                consumed_val = str(stats['consumed'])
-                buffer_str = f"{stats['buffer_size']}/{stats['buffer_capacity']}"
+        try:
+            if not self.window or not hasattr(self.window, 'TKroot') or not self.window.TKroot or not self.window.TKroot.winfo_exists():
+                return
 
-                # Correctly reference threads from the simulation's thread_api
+            if self.simulation and hasattr(self.simulation, 'get_stats'):
+                stats = self.simulation.get_stats()
+                produced_val = str(stats.get('produced', 0))
+                consumed_val = str(stats.get('consumed', 0))
+                buffer_str = f"{stats.get('buffer_size', 0)}/{stats.get('buffer_capacity', self.buffer_size)}"
+
                 if hasattr(self.simulation, 'thread_api') and self.simulation.thread_api and \
-                   hasattr(self.simulation.thread_api, 'threads'):
-                    active_threads_val = str(len([
-                        t for t in self.simulation.thread_api.threads if t.is_alive()
-                    ]))
+                   hasattr(self.simulation.thread_api, 'thread_states'): # Check for thread_states
+                    active_count = 0
+                    with self.simulation.thread_api.lock: 
+                        # Use .thread_states.values() to get ThreadInfo objects
+                        for t_info in self.simulation.thread_api.thread_states.values():
+                            if t_info.state not in ["Finished", "Error", "Terminated"]: 
+                                active_count +=1
+                    active_threads_val = str(active_count)
                 
                 buffer_contents = getattr(self.simulation, 'buffer', [])
-                if hasattr(buffer_contents, 'queue'): # Handle if buffer is a queue.Queue
+                if hasattr(buffer_contents, 'queue'): 
                     buffer_list_for_draw = list(buffer_contents.queue)
-                elif isinstance(buffer_contents, list): # Handle if buffer is already a list
+                elif isinstance(buffer_contents, list): 
                     buffer_list_for_draw = buffer_contents
-                else: # Default to empty list if type is unknown or not iterable directly
-                    buffer_list_for_draw = []
-
-            except Exception as e:
-                # Log error in fetching stats, GUI will show defaults
-                # Using print for debug as self.log_message might also fail if window is closing
-                print(f"Debug: Error fetching stats in update_statistics: {e}")
-        
-        try:
+            
             # Attempt to update GUI elements
             self.window['-STAT_PRODUCED-'].update(produced_val)
             self.window['-STAT_CONSUMED-'].update(consumed_val)
             self.window['-STAT_BUFFER-'].update(buffer_str)
             self.window['-STAT_THREADS-'].update(active_threads_val)
             
-            # This call to another GUI updating method should also be robust
-            # or its errors handled within that method or caught here if it propagates.
             self.draw_buffer_visualization(buffer_list_for_draw)
 
-        except TypeError as e:
-            if "window was closed" in str(e).lower():
-                # This is an expected condition when shutting down.
-                print(f"Debug: update_statistics - GUI update skipped, window closed: {e}")
+        except (TypeError, AttributeError, sg.tk.TclError, RuntimeError) as e:
+            err_msg = str(e).lower()
+            if "window was closed" in err_msg or \
+               "application has been destroyed" in err_msg or \
+               "invalid command name" in err_msg or \
+               (hasattr(self, 'window') and self.window and (not hasattr(self.window, 'TKroot') or not self.window.TKroot)):
+                return
             else:
-                # An unexpected TypeError
-                print(f"Debug: update_statistics - Unexpected TypeError: {e}")
-                if hasattr(self, 'log_message') and callable(self.log_message):
-                    # Try to log to GUI if log_message itself is safe
-                    try:
-                        self.log_message(f"Unexpected TypeError in update_statistics: {e}")
-                    except Exception as log_e:
-                        print(f"Debug: Failed to log TypeError to GUI: {log_e}")
+                self.log_message(f"Update_statistics: Unexpected GUI error: {type(e).__name__}: {e}")
         except Exception as e:
-            # Other unexpected errors during GUI update
-            print(f"Debug: update_statistics - Generic error during GUI update: {e}")
-            if hasattr(self, 'log_message') and callable(self.log_message):
-                try:
-                    self.log_message(f"Generic error in update_statistics GUI update: {e}")
-                except Exception as log_e:
-                    print(f"Debug: Failed to log generic error to GUI: {log_e}")
-    
+            self.log_message(f"Update_statistics: Generic error: {type(e).__name__}: {e}")
+
     def start_simulation(self):
         """Start the producer-consumer simulation"""
         try:
@@ -390,30 +411,33 @@ class ConcurrencyApp:
                 logger=self.log_message  # Pass the GUI logger to the simulation
             )
             
-            
-            # Start simulation
-            self.running = True
-            self.window['-START-'].update(disabled=True)
-            self.window['-STOP-'].update(disabled=False)
+            self.running = True # Set app-level running flag for simulation_monitor
+            if self.window: # Check window exists before updating elements
+                self.window['-START-'].update(disabled=True)
+                self.window['-STOP-'].update(disabled=False)
             
             self.log_message("Starting simulation...")
             
             # Start simulation in separate thread
-            sim_thread = threading.Thread(target=self.run_simulation, daemon=True)
-            sim_thread.start()
+            self.sim_thread = threading.Thread(target=self.run_simulation, daemon=True)
+            self.sim_thread.start()
             
             # Start GUI update thread
-            update_thread = threading.Thread(target=self.simulation_monitor, daemon=True)
-            update_thread.start()
+            if self.update_thread and self.update_thread.is_alive():
+                # Should not happen if logic is correct, but as a safeguard
+                self.update_thread.join(timeout=0.5)
+            self.update_thread = threading.Thread(target=self.simulation_monitor, daemon=True)
+            self.update_thread.start()
             
         except ValueError as e:
             sg.popup_error(f"Invalid parameter: {e}")
         except Exception as e:
             sg.popup_error(f"Error starting simulation: {e}")
-    
+            
     def run_simulation(self):
         """Run the actual simulation"""
         try:
+            # Start the simulation threads (non-blocking)
             self.simulation.start_simulation(
                 num_producers=self.num_producers,
                 num_consumers=self.num_consumers,
@@ -422,119 +446,162 @@ class ConcurrencyApp:
                 producer_delay=self.producer_delay,
                 consumer_delay=self.consumer_delay
             )
+            
+            # Wait for completion and then log final results
+            self.simulation.wait_for_completion()
+            
         except Exception as e:
             self.log_message(f"Simulation error: {e}")
-    
     def simulation_monitor(self):
-        """Monitor simulation and update GUI"""
-        while self.running:  # Loop controlled by ConcurrencyApp's self.running
-            if not self.simulation:
-                if self.window and hasattr(self, 'draw_initial_displays'):
-                    # If no simulation, ensure graphs are in initial state
-                    self.draw_initial_displays(self.window) 
-                try:
-                    time.sleep(0.5)
-                except AttributeError: pass # time module might be gone during shutdown
-                continue
-
-            # Simulation exists, get its current logical running state
-            simulation_is_logically_running = getattr(self.simulation, 'running', False)
-
-            thread_states = []
-            if hasattr(self.simulation, 'thread_api') and \
-               self.simulation.thread_api and \
-               hasattr(self.simulation.thread_api, 'threads'):
-                for thread_obj in self.simulation.thread_api.threads:
-                    name = thread_obj.name
-                    if not name: 
-                        continue
-
-                    progress = 0.0  # Default progress
-                    if thread_obj.is_alive():
-                        if simulation_is_logically_running:
-                            status = "Running"
-                            progress = random.uniform(0.2, 0.9)
-                        else:
-                            # Simulation told to stop, but thread still alive (cleaning up)
-                            status = "Stopping"
-                            # progress remains 0.0
-                    else:  # Thread is not alive
-                        status = "Finished"
-                        # progress remains 0.0
-                    thread_states.append((name, status, progress))
-            
-            if hasattr(self, 'update_statistics'):
-                self.update_statistics()
-            if hasattr(self, 'draw_thread_visualization'):
-                self.draw_thread_visualization(thread_states)
-            
+        self.log_message("Simulation monitor thread started.")
+        while self.running and self.simulation and self.simulation.running:
             try:
-                time.sleep(0.5)
-            except AttributeError: pass # time module might be gone during shutdown
-            except NameError: pass
+                if not self.window or not hasattr(self.window, 'TKroot') or not self.window.TKroot or not self.window.TKroot.winfo_exists():
+                    self.log_message("Simulation_monitor: Window closed or invalid, exiting monitor loop.")
+                    break
+                
+                self.update_statistics()
+                self.draw_thread_visualization()
+                
+                # Update the log display with recent messages
+                self.update_log_display()
 
+                # Check if simulation has completed naturally
+                if self.simulation and self.simulation.is_simulation_complete():
+                    self.log_message("Simulation completed naturally - updating GUI state.")
+                    self.running = False
+                    # Update button states to reflect completion
+                    if self.window:
+                        self.window['-START-'].update(disabled=False)
+                        self.window['-STOP-'].update(disabled=True)
 
-        # ---- Main monitor loop (controlled by self.running) has exited ----
-        # Perform a final GUI update to reflect the definitive end state of threads.
-        # This is crucial for when self.stop_simulation() was called.
-        if self.simulation and self.window:
-            final_thread_states = []
-            if hasattr(self.simulation, 'thread_api') and \
-               self.simulation.thread_api and \
-               hasattr(self.simulation.thread_api, 'threads'):
-                for thread_obj in self.simulation.thread_api.threads:
-                    name = thread_obj.name
-                    if not name: continue
-                    # At this stage, all producer/consumer threads managed by
-                    # ProducerConsumerSimulation should have finished because its
-                    # 'running' flag is set to False *after* internal join_all().
-                    status = "Finished" 
-                    progress = 0.0
-                    final_thread_states.append((name, status, progress))
+                if not self.window or not hasattr(self.window, 'TKroot') or not self.window.TKroot or not self.window.TKroot.winfo_exists(): # Re-check before refresh
+                    self.log_message("Simulation_monitor: Window closed before refresh, exiting monitor loop.")
+                    break
+                self.window.refresh()
 
-            if hasattr(self, 'update_statistics'): 
-                self.update_statistics() # Update stats one last time
-            if hasattr(self, 'draw_thread_visualization'):
-                self.draw_thread_visualization(final_thread_states)
-        elif self.window and hasattr(self, 'draw_initial_displays'):
-            # If simulation was cleared or never ran, ensure initial display
-             self.draw_initial_displays(self.window)
+            except (sg.tk.TclError, TypeError, AttributeError, RuntimeError) as e: 
+                err_msg = str(e).lower()
+                if "window was closed" in err_msg or "application has been destroyed" in err_msg or "invalid command name" in err_msg:
+                    self.log_message("Simulation_monitor: Breaking loop due to window destruction error.")
+                    break 
+                else:
+                    self.log_message(f"Simulation_monitor: Error in main loop (GUI related): {type(e).__name__}: {e}")
+                    # Depending on the error, might still be safe to continue if not window destruction
+            except Exception as e:
+                self.log_message(f"Simulation_monitor: Generic error in main loop: {type(e).__name__}: {e}")
+                # For truly unexpected errors, breaking might be safer
+                # break 
+
+            if not self.running: 
+                break
+            time.sleep(0.1) 
+        
+        self.log_message(f"Simulation_monitor main loop exited. self.running: {self.running}, sim valid: {self.simulation is not None}")
+
+        try:
+            if self.window and hasattr(self.window, 'TKroot') and self.window.TKroot and self.window.TKroot.winfo_exists():
+                self.log_message("Simulation_monitor: Attempting final GUI update post-loop.")
+                if self.simulation: 
+                    self.update_statistics()
+                    self.draw_thread_visualization() 
+                elif hasattr(self, 'draw_initial_displays'): 
+                    self.draw_initial_displays(self.window)
+                
+                self.window.refresh()
+                self.log_message("Simulation_monitor: Final GUI update post-loop completed.")
+            # else:
+                # self.log_message("Simulation_monitor: Window or TKroot destroyed, skipping final update post-loop.")
+        except (sg.tk.TclError, TypeError, AttributeError, RuntimeError) as e:
+            err_msg = str(e).lower()
+            if "window was closed" in err_msg or "application has been destroyed" in err_msg or "invalid command name" in err_msg or "none" in err_msg:
+                # self.log_message(f"Simulation_monitor: Final update skipped, window closed/destroyed. ({type(e).__name__}: {e})")
+                pass
+            else:
+                self.log_message(f"Simulation_monitor: Error during final GUI update (specific): {type(e).__name__}: {e}")
+        except Exception as e:
+            self.log_message(f"Simulation_monitor: Error during final GUI update (generic): {type(e).__name__}: {e}")
+        
+        self.log_message(f"Simulation_monitor thread exiting. self.running: {self.running}")
 
     def stop_simulation(self):
         """Stop the current simulation"""
-        self.running = False
+        self.log_message("Stopping simulation...")
+        self.running = False # Signal simulation_monitor to stop its loop
+
         if self.simulation:
-            self.simulation.stop_simulation()
+            self.simulation.stop_simulation() # Signal ProducerConsumerSimulation to stop its threads
+
+        # Wait for the actual simulation logic thread (sim_thread) to finish
+        # This ensures ProducerConsumerSimulation.join_all() completes.
+        if self.sim_thread and self.sim_thread.is_alive():
+            self.sim_thread.join(timeout=1.0) # Adjust timeout as needed
+        self.sim_thread = None
         
-        self.window['-START-'].update(disabled=False)
-        self.window['-STOP-'].update(disabled=True)
-        
+        if self.window and hasattr(self.window, 'TKroot') and self.window.TKroot and self.window.TKroot.winfo_exists(): 
+            try:
+                self.window['-START-'].update(disabled=False)
+                self.window['-STOP-'].update(disabled=True)
+            except (sg.tk.TclError, AttributeError, RuntimeError) as e: 
+                # print(f"Debug: Error updating buttons in stop_simulation (likely window closed): {e}")
+                pass # Suppress error if window is closing
+            except Exception as e:
+                self.log_message(f"Error updating buttons in stop_simulation: {type(e).__name__}: {e}")
+        # else:
+            # print("Debug: Window closed or invalid in stop_simulation, skipping button update.")
+
         self.log_message("Simulation stopped.")
-    
+
     def reset_simulation(self):
         """Reset the simulation"""
-        self.stop_simulation()
-        time.sleep(0.5)  # Give time for threads to stop
-        
-        self.simulation = None
+        self.log_message("Resetting simulation...")
+        self.stop_simulation() # This now handles stopping self.running, self.simulation.running, and joining sim_thread
+
+        # Wait for the simulation_monitor thread to finish its current operations and exit its loop.
+        # self.running is already False.
+        if self.update_thread and self.update_thread.is_alive():
+            self.update_thread.join(timeout=1.0) # Wait for simulation_monitor to finish its post-loop cleanup
+        self.update_thread = None
+
+        # At this point, simulation_monitor and sim_thread are no longer running.
+        # It's safe to modify self.simulation and update GUI from the main thread.
+
+        self.simulation = None # Clear the simulation object
         self.log_messages.clear()
+
+        if self.window and hasattr(self.window, 'TKroot') and self.window.TKroot and self.window.TKroot.winfo_exists():
+            try:
+                self.draw_initial_displays(self.window) # Reset graphs
+
+                # Reset statistics text
+                self.window['-STAT_PRODUCED-'].update('0')
+                self.window['-STAT_CONSUMED-'].update('0')
+                self.window['-STAT_BUFFER-'].update('0/0')
+                self.window['-STAT_THREADS-'].update('0')
+                self.window['-LOG-'].update('')
+
+                # Ensure buttons are in correct state after reset (already done by stop_simulation, but good to be sure)
+                self.window['-START-'].update(disabled=False)
+                self.window['-STOP-'].update(disabled=True)
+
+            except (sg.tk.TclError, AttributeError, RuntimeError) as e: 
+                # print(f"Debug: Error resetting GUI elements in reset_simulation (likely window closed): {e}")
+                pass # Suppress error if window is closing
+            except Exception as e:
+                 self.log_message(f"Error resetting GUI elements: {type(e).__name__}: {e}")
+        # else:
+            # print("Debug: Window closed or invalid in reset_simulation, skipping GUI reset.")
         
-        # Reset displays
-        self.draw_initial_displays(self.window)
-        
-        # Reset statistics
-        self.window['-STAT_PRODUCED-'].update('0')
-        self.window['-STAT_CONSUMED-'].update('0')
-        self.window['-STAT_BUFFER-'].update('0/0')
-        self.window['-STAT_THREADS-'].update('0')
-        self.window['-LOG-'].update('')
-        
-        self.log_message("Simulation reset.")
-    
+        self.log_message("Simulation reset complete.")
+
     def handle_event(self, event, values):
         """Handle GUI events"""
         if event == sg.WIN_CLOSED:
-            self.stop_simulation()
+            self.log_message("Window closed event received.")
+            self.stop_simulation() # Try to gracefully stop threads
+            # Wait for monitor thread before allowing window to close, to avoid GUI update errors
+            if self.update_thread and self.update_thread.is_alive():
+                self.update_thread.join(timeout=0.5) 
             return 'close'
         elif event == '-START-':
             self.start_simulation()
