@@ -1,4 +1,7 @@
-PySimpleGUI
 cryptography
 whoosh
 Pillow
+yt-dlp
+python-vlc
+google
+google-generativeai
