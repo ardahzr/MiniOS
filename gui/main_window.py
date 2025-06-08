@@ -11,6 +11,7 @@ from gui.apps.memory_visualizer_app import MemoryVisualizerApp
 from gui.apps.gemini_chat_app import GeminiChatApp
 from gui.apps.process_manager_visualizer_app import ProcessManagerVisualizerApp
 from gui.apps.chat_app import ChatApp
+from gui.apps.concurrency_app import ConcurrencyApp
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -23,6 +24,7 @@ wallpaper_path = os.path.join(BASEDIR, 'resources', 'wallpaper.png')
 icon_ai_path = os.path.join(BASEDIR, 'resources', 'gemini.png')
 icon_scheduler_vis_path = os.path.join(BASEDIR, 'resources', 'scheduler_vis.png')
 icon_chat_path = os.path.join(BASEDIR, 'resources', 'chat.png')
+icon_concurrency_path = os.path.join(BASEDIR, 'resources', 'concurrency.png')
 
 class MainWindow:
     DESKTOP_ICON_SIZE = (48, 48)
@@ -48,6 +50,7 @@ class MainWindow:
             {'key': 'AIChat', 'text': 'AI Chat', 'image_path': icon_ai_path},
             {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path},
             {'key': 'ChatApp', 'text': 'Network Chat', 'image_path': icon_chat_path},
+            {'key': 'Concurrency', 'text': 'Concurrency', 'image_path': icon_concurrency_path},
         ]
         self.clickable_icon_areas = {}
         self.taskbar_app_keys = [] 
@@ -271,7 +274,8 @@ class MainWindow:
             'Memory': MemoryVisualizerApp,
             'AIChat': GeminiChatApp,
             'SchedulerVisualizer': ProcessManagerVisualizerApp,
-            'ChatApp': ChatApp 
+            'ChatApp': ChatApp,
+            'Concurrency': ConcurrencyApp
         }
         APP_TICK_INTERVAL = 200
 
@@ -345,6 +349,7 @@ class MainWindow:
                             [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
                             [sg.Button('Scheduler Visualizer', size=(20,1), button_color=self.button_color, key='SchedulerVisualizer')], 
                             [sg.Button('Network Chat', size=(20,1), button_color=self.button_color, key='ChatApp')],
+                            [sg.Button('Concurrency', size=(20,1), button_color=self.button_color, key='Concurrency')],
                             [sg.HorizontalSeparator(color='#1976d2')],
                             [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
                         ]
