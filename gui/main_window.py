@@ -205,6 +205,7 @@ class MainWindow:
 
     def _draw_desktop_icons_on_graph(self):
         self.clickable_icon_areas.clear()
+        icons_per_column = 9  
         current_x = self.DESKTOP_ICON_HORIZONTAL_PADDING
         current_y = self.DESKTOP_ICON_TOP_PADDING
         approx_font_pixel_height = 12 
@@ -239,7 +240,14 @@ class MainWindow:
             clickable_x2 = img_x + icon_w
             clickable_y2 = text_y_anchor_top + text_area_height_approx 
             self.clickable_icon_areas[icon_config['key']] = (clickable_x1, clickable_y1, clickable_x2, clickable_y2)
-            current_y += self.DESKTOP_ICON_VERTICAL_SPACING
+
+
+            if (i + 1) % icons_per_column == 0:
+         
+                current_x += icon_w + self.DESKTOP_ICON_HORIZONTAL_PADDING * 2  
+                current_y = self.DESKTOP_ICON_TOP_PADDING
+            else:
+                current_y += self.DESKTOP_ICON_VERTICAL_SPACING
 
     def update_clock(self):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -311,7 +319,7 @@ class MainWindow:
                     if game_window and not game_window.was_closed() and hasattr(game_instance, 'handle_event'):
                         game_instance.handle_event("TIMER_TICK", None)
                 
-                # Refresh ChatApp windows if any
+          
                 for app_key_iter, (win_instance_iter, app_instance_ref_iter) in list(self.open_windows.items()):
                     if app_key_iter == 'ChatApp' and win_instance_iter and not win_instance_iter.was_closed() and hasattr(app_instance_ref_iter, 'handle_event'):
                         app_instance_ref_iter.handle_event("REFRESH_CHAT_DISPLAY", None)
@@ -431,7 +439,7 @@ class MainWindow:
                         if current_app_key in self.minimized_windows:
                             del self.minimized_windows[current_app_key]
         
-        # Temizleme işlemleri
+     
         for _key, (win_to_close, app_instance_to_close) in list(self.open_windows.items()): 
             if _key != 'Desktop' and hasattr(app_instance_to_close, '_shutdown_client'):
                 try:
