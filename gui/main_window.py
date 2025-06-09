@@ -14,6 +14,8 @@ from gui.apps.chat_app import ChatApp
 from gui.apps.youtube_app import YouTubeApp 
 from gui.apps.concurrency_app import ConcurrencyApp
 from gui.apps import CalculatorApp
+from gui.apps.ml_scheduler_sim import MLSchedulerSim
+
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -29,6 +31,7 @@ icon_chat_path = os.path.join(BASEDIR, 'resources', 'chat.png')
 icon_youtube_path = os.path.join(BASEDIR, 'resources', 'youtube.png')
 icon_concurrency_path = os.path.join(BASEDIR, 'resources', 'concurrency.png')
 icon_calculator_path = os.path.join(BASEDIR, 'resources', 'calculator.png') 
+icon_ml_path = os.path.join(BASEDIR, 'resources', 'ml.png')  
 
 class MainWindow:
     DESKTOP_ICON_SIZE = (48, 48)
@@ -53,10 +56,11 @@ class MainWindow:
             {'key': 'Memory', 'text': 'Memory', 'image_path': icon_memoryVis_path},
             {'key': 'AIChat', 'text': 'AI Chat', 'image_path': icon_ai_path},
             {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path},
+            {'key': 'MLSchedulerSim', 'text': 'ML Scheduler', 'image_path': icon_ml_path},  
             {'key': 'ChatApp', 'text': 'Network Chat', 'image_path': icon_chat_path},
             {'key': 'YouTube', 'text': 'YouTube', 'image_path': icon_youtube_path},
             {'key': 'Concurrency', 'text': 'Concurrency', 'image_path': icon_concurrency_path},
-            {'key': 'Calculator', 'text': 'Calculator', 'image_path': icon_calculator_path}, 
+            {'key': 'Calculator', 'text': 'Calculator', 'image_path': icon_calculator_path}
         ]
         self.clickable_icon_areas = {}
         self.taskbar_app_keys = [] 
@@ -288,6 +292,7 @@ class MainWindow:
             'Memory': MemoryVisualizerApp,
             'AIChat': GeminiChatApp,
             'SchedulerVisualizer': ProcessManagerVisualizerApp,
+            'MLSchedulerSim': MLSchedulerSim,  
             'ChatApp': ChatApp,
             'YouTube': YouTubeApp,
             'Calculator': CalculatorApp,
@@ -364,6 +369,7 @@ class MainWindow:
                             [sg.Button('Memory', size=(20,1), button_color=self.button_color, key='Memory')],
                             [sg.Button('AI Chat', size=(20,1), button_color=self.button_color, key='AIChat')],
                             [sg.Button('Scheduler Visualizer', size=(20,1), button_color=self.button_color, key='SchedulerVisualizer')], 
+                            [sg.Button('ML Scheduler', size=(20,1), button_color=self.button_color, key='MLSchedulerSim')],  
                             [sg.Button('Network Chat', size=(20,1), button_color=self.button_color, key='ChatApp')],
                             [sg.Button('YouTube', size=(20,1), button_color=self.button_color, key='YouTube')], 
                             [sg.Button('Concurrency', size=(20,1), button_color=self.button_color, key='Concurrency')],
