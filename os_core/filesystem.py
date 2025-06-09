@@ -51,6 +51,47 @@ class File:
         self.size = len(self.content)
         self.timestamp = time.time()
 
+    def encrypt(self, password=None):
+        """Encrypts the file content with a password (optional)."""
+        if self.encrypted:
+            raise ValueError("File is already encrypted.")
+        if password:
+            # Derive a Fernet key from the password (simple hash, not secure for real use)
+            import base64, hashlib
+            key = base64.urlsafe_b64encode(hashlib.sha256(password.encode()).digest())
+            self.key = key
+        elif not self.key:
+            self.key = Fernet.generate_key()
+        f = Fernet(self.key)
+        if isinstance(self.content, str):
+            data = self.content.encode()
+        else:
+            data = self.content
+        self.content = f.encrypt(data)
+        self.encrypted = True
+        self.size = len(self.content)
+        self.timestamp = time.time()
+
+    def decrypt(self, password=None):
+        """Decrypts the file content with a password (optional)."""
+        if not self.encrypted:
+            raise ValueError("File is not encrypted.")
+        if password:
+            import base64, hashlib
+            key = base64.urlsafe_b64encode(hashlib.sha256(password.encode()).digest())
+        else:
+            key = self.key
+        f = Fernet(key)
+        try:
+            decrypted = f.decrypt(self.content)
+        except Exception as e:
+            raise ValueError(f"Decryption failed: {e}")
+        self.content = decrypted
+        self.encrypted = False
+        self.key = None
+        self.size = len(self.content)
+        self.timestamp = time.time()
+
 
 class Directory:
     def __init__(self, name):
