@@ -1,6 +1,5 @@
 import PySimpleGUI as sg
 import google.generativeai as genai
-import os
 
 API_KEY = "AIzaSyDKrJSlhL9zt2oZdlvMCAKzKIWg9KfqpAA" # REPLACE WITH YOUR ACTUAL API KEY
 

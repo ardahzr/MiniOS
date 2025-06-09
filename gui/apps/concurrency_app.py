@@ -1,8 +1,6 @@
 import PySimpleGUI as sg
 import threading
 import time
-import random
-from typing import List, Dict, Any
 # import queue # Not strictly needed if only using list for buffer_list_for_draw
 from os_core.concurrency import ProducerConsumerSimulation, ThreadAPI
 

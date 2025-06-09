@@ -1,4 +1,3 @@
-import os
 from cryptography.fernet import Fernet, InvalidToken
 import time
 import pickle

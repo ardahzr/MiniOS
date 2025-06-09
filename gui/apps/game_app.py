@@ -1,6 +1,5 @@
 import PySimpleGUI as sg
 import random
-import time
 
 CELL_SIZE = 20
 GRID_SIZE = 20

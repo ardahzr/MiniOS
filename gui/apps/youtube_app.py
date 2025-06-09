@@ -2,10 +2,7 @@ import PySimpleGUI as sg
 import re
 import sys
 import webbrowser
-import subprocess
-import tempfile
 import urllib.parse
-import time
 
 try:
     from yt_dlp import YoutubeDL
