@@ -27,6 +27,7 @@ pycparser==2.22
 pydantic==2.11.5
 pydantic_core==2.33.2
 pyparsing==3.2.3
+python-vlc==3.0.21203
 requests==2.32.3
 rsa==4.9.1
 soupsieve==2.7
@@ -35,3 +36,4 @@ typing-inspection==0.4.1
 typing_extensions==4.14.0
 uritemplate==4.2.0
 urllib3==2.4.0
+yt-dlp==2025.5.22
