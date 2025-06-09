@@ -79,6 +79,7 @@ class TerminalApp:
             try:
                 path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
                 self.fs.mkdir(path)
+                self.fs.save() 
                 self._print(f"Directory '{path}' created.")
             except Exception as e:
                 self._print(f"Error: {e}")
@@ -86,6 +87,7 @@ class TerminalApp:
             try:
                 path = parts[1] if parts[1].startswith('/') else (self.cwd.rstrip('/') + '/' + parts[1] if self.cwd != '/' else '/' + parts[1])
                 self.fs.create_file(path, content=b'')
+                self.fs.save()  
                 self._print(f"File '{path}' created.")
             except Exception as e:
                 self._print(f"Error: {e}")
@@ -122,6 +124,7 @@ class TerminalApp:
 
                 path = filename if filename.startswith('/') else (self.cwd.rstrip('/') + '/' + filename if self.cwd != '/' else '/' + filename)
                 self.fs.write_file(path, text.encode('utf-8'))
+                self.fs.save() 
                 self._print(f"Wrote to {path}")
             except ValueError:
                 self._print("Error: Invalid echo command. Usage: echo [text] > filename")
