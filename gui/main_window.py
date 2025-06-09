@@ -12,6 +12,7 @@ from gui.apps.gemini_chat_app import GeminiChatApp
 from gui.apps.process_manager_visualizer_app import ProcessManagerVisualizerApp
 from gui.apps.chat_app import ChatApp
 from gui.apps.youtube_app import YouTubeApp 
+from gui.apps import CalculatorApp
 
 BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 icon_folder_path = os.path.join(BASEDIR, 'resources', 'folder.png')
@@ -25,6 +26,7 @@ icon_ai_path = os.path.join(BASEDIR, 'resources', 'gemini.png')
 icon_scheduler_vis_path = os.path.join(BASEDIR, 'resources', 'scheduler_vis.png')
 icon_chat_path = os.path.join(BASEDIR, 'resources', 'chat.png')
 icon_youtube_path = os.path.join(BASEDIR, 'resources', 'youtube.png')
+icon_calculator_path = os.path.join(BASEDIR, 'resources', 'calculator.png') 
 
 class MainWindow:
     DESKTOP_ICON_SIZE = (48, 48)
@@ -51,6 +53,7 @@ class MainWindow:
             {'key': 'SchedulerVisualizer', 'text': 'Scheduler', 'image_path': icon_scheduler_vis_path},
             {'key': 'ChatApp', 'text': 'Network Chat', 'image_path': icon_chat_path},
             {'key': 'YouTube', 'text': 'YouTube', 'image_path': icon_youtube_path},
+            {'key': 'Calculator', 'text': 'Calculator', 'image_path': icon_calculator_path}, 
         ]
         self.clickable_icon_areas = {}
         self.taskbar_app_keys = [] 
@@ -275,7 +278,8 @@ class MainWindow:
             'AIChat': GeminiChatApp,
             'SchedulerVisualizer': ProcessManagerVisualizerApp,
             'ChatApp': ChatApp,
-            'YouTube': YouTubeApp 
+            'YouTube': YouTubeApp,
+            'Calculator': CalculatorApp,  
         }
         APP_TICK_INTERVAL = 200
 
@@ -350,6 +354,7 @@ class MainWindow:
                             [sg.Button('Scheduler Visualizer', size=(20,1), button_color=self.button_color, key='SchedulerVisualizer')], 
                             [sg.Button('Network Chat', size=(20,1), button_color=self.button_color, key='ChatApp')],
                             [sg.Button('YouTube', size=(20,1), button_color=self.button_color, key='YouTube')], 
+                            [sg.Button('Calculator', size=(20,1), button_color=self.button_color, key='Calculator')],
                             [sg.HorizontalSeparator(color='#1976d2')],
                             [sg.Button('Exit', size=(20,1), button_color=self.button_color, key='Exit')]
                         ]
