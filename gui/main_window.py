@@ -364,7 +364,7 @@ class MainWindow:
                         taskbar_y_abs = self.window.CurrentLocation()[1] + self.desktop_graph_height
                         
                         num_items = len(start_menu_layout)
-                        button_height_approx = 30 
+                        button_height_approx = 20 
                         menu_height_approx = num_items * button_height_approx + (num_items * 5) 
 
                         start_menu_y = taskbar_y_abs - menu_height_approx 
