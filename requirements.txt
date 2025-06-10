@@ -36,4 +36,7 @@ typing-inspection==0.4.1
 typing_extensions==4.14.0
 uritemplate==4.2.0
 urllib3==2.4.0
-yt-dlp==2025.5.22
+yt-dlp==2025.6.8.232939.dev0
+matplotlib
+scikit-learn
+numpy
